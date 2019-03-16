@@ -2,5 +2,6 @@
 #
 *.swp
 ref/
+test_nn.ipynb
 __pycache__/
 .ipynb_checkpoints/
