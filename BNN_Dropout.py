@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
+from copy import deepcopy
 
 class NN_Dropout(nn.Module):
 
@@ -26,17 +27,16 @@ class NN_Dropout(nn.Module):
         for i in range(self.num_layers):
             layers.append(nn.Linear(pre_dim, self.num_hidden, bias=True))
             layers.append(self.act)
-            # layers.append(nn.Dropout(p = self.dropout_rate))
             pre_dim = self.num_hidden
         layers.append(nn.Linear(pre_dim, 1, bias = True))
         return nn.Sequential(*layers)
     
-    # Forward function used for training
     def forward(self, x):
+        bs = torch.distributions.Bernoulli(1 - self.dropout_rate)
         for l in self.nn:
             x = l(x)
             if type(l) != nn.Linear:
-                x = F.dropout(x, p = self.dropout_rate, training = self.training)
+                x = F.dropout(x, p = self.dropout_rate, training = self.training) * (1 - self.dropout_rate)
         return x
 
 class BNN_Dropout:
@@ -55,28 +55,30 @@ class BNN_Dropout:
     # TODO: logging
     # TODO: normalize input
     def train(self, X, y):
-        self.train_x    = X
-        self.train_y    = y
+        self.train_x = X
+        self.train_y = y
         criterion       = nn.MSELoss()
         opt             = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
-        loss            = torch.tensor(float('inf'));
         dataset         = TensorDataset(self.train_x, self.train_y)
         loader          = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         self.rec_losses = []
         for epoch in range(self.num_epochs):
             for bx, by in loader:
-                opt.zero_grad()
-                pred     = self.nn(bx)
-                mse_loss = criterion(pred, by)
-                reg_loss = 0
-                for name, param in self.nn.named_parameters():
-                    if "bias" not in name:
-                        reg_loss += self.lr * param.norm(2) ** 2
-                loss = mse_loss + reg_loss
-                loss.backward(retain_graph = True)
-                opt.step()
-            print("After %d epochs, loss is %g" % (epoch + 1, loss))
-            self.rec_losses.append(loss.data)
+                def closure():
+                    opt.zero_grad()
+                    pred     = self.nn(bx)
+                    mse_loss = criterion(pred, by)
+                    reg_loss = 0
+                    for name, param in self.nn.named_parameters():
+                        if "bias" not in name:
+                            reg_loss += self.l2_reg * param.norm(2) ** 2
+                    loss = mse_loss + reg_loss
+                    loss.backward(retain_graph = True)
+                    return loss
+                opt.step(closure)
+            true_loss = criterion(self.nn(self.train_x), self.train_y)
+            print("After %d epochs, loss is %g" % (epoch + 1, true_loss))
+            self.rec_losses.append(true_loss)
     
     def predict(self, x):
         self.nn.eval()
@@ -84,4 +86,10 @@ class BNN_Dropout:
         return pred
 
     def sample(self):
-        pass
+        net = deepcopy(self.nn.nn)
+        bs  = torch.distributions.Bernoulli(1 - self.dropout_rate)
+        for layer in net:
+            if isinstance(layer, nn.Linear):
+                vec                = bs.sample((layer.weight.shape[1], ))
+                layer.weight.data *= vec
+        return net
