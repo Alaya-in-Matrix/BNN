@@ -58,7 +58,7 @@ class BNN_Dropout:
         self.train_x = X
         self.train_y = y
         criterion       = nn.MSELoss()
-        opt             = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
+        opt             = torch.optim.Adam(self.nn.parameters(), lr = self.lr, weight_decay = self.l2_reg)
         dataset         = TensorDataset(self.train_x, self.train_y)
         loader          = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         self.rec_losses = []
@@ -70,19 +70,15 @@ class BNN_Dropout:
             for bx, by in loader:
                 def closure():
                     opt.zero_grad()
-                    pred     = self.nn(bx)
-                    mse_loss = criterion(pred, by)
-                    reg_loss = 0
-                    for name, param in self.nn.named_parameters():
-                        if "bias" not in name:
-                            reg_loss += self.l2_reg * param.norm(2) ** 2
-                    loss = mse_loss + reg_loss
+                    pred = self.nn(bx)
+                    loss = criterion(pred, by)
                     loss.backward(retain_graph = True)
                     return loss
                 opt.step(closure)
-            true_loss = criterion(self.nn(self.train_x), self.train_y)
-            print("After %d epochs, loss is %g" % (epoch + 1, true_loss))
-            self.rec_losses.append(true_loss)
+            if epoch > 0 and epoch % 100 == 0:
+                true_loss = criterion(self.nn(self.train_x), self.train_y)
+                print("After %d epochs, loss is %g" % (epoch + 1, true_loss))
+                self.rec_losses.append(true_loss)
     
     def predict(self, x):
         self.nn.eval()
