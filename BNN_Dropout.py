@@ -62,7 +62,11 @@ class BNN_Dropout:
         dataset         = TensorDataset(self.train_x, self.train_y)
         loader          = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         self.rec_losses = []
+        scheduler       = torch.optim.lr_scheduler.StepLR(opt, step_size = int(self.num_epochs / 4), gamma = 0.1)
+        # scheduler       = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, min_lr = 1e-6)
+        # scheduler       = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max = int(self.num_epochs / 4), eta_min = 1e-8)
         for epoch in range(self.num_epochs):
+            scheduler.step()
             for bx, by in loader:
                 def closure():
                     opt.zero_grad()
