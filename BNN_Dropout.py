@@ -33,6 +33,8 @@ class NN_Dropout(nn.Module):
     
     def forward(self, x):
         bs = torch.distributions.Bernoulli(1 - self.dropout_rate)
+        if self.dim > 1:
+            x = F.dropout(x, p = self.dropout_rate, training = self.training) * (1 - self.dropout_rate)
         for l in self.nn:
             x = l(x)
             if type(l) != nn.Linear:
@@ -45,20 +47,23 @@ class BNN_Dropout:
         self.act          = act
         self.num_hidden   = conf.get('num_hidden', 50)
         self.num_layers   = conf.get('num_layers', 3)
-        self.dropout_rate = conf.get('dropout_rate', 0.5)
+        self.dropout_rate = conf.get('dropout_rate', 0.05)
         self.lr           = conf.get('lr', 1e-3)
-        self.batch_size   = conf.get('batch_size', 32)
-        self.num_epochs   = conf.get('num_epochs', 100)
-        self.l2_reg       = conf.get('l2_reg', 1e-6)
+        self.batch_size   = conf.get('batch_size', 128)
+        self.num_epochs   = conf.get('num_epochs', 40)
+        self.tau          = conf.get('tau', 1)
+        self.lscale       = conf.get('lscale', 1e-2)
         self.nn           = NN_Dropout(dim, self.act, self.num_hidden, self.num_layers, self.dropout_rate)
 
     # TODO: logging
     # TODO: normalize input
     def train(self, X, y):
-        self.train_x = X
-        self.train_y = y
+        self.train_x    = X
+        self.train_y    = y
+        num_train       = self.train_x.shape[0]
+        l2_reg          = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau)
         criterion       = nn.MSELoss()
-        opt             = torch.optim.Adam(self.nn.parameters(), lr = self.lr, weight_decay = self.l2_reg)
+        opt             = torch.optim.Adam(self.nn.parameters(), lr = self.lr, weight_decay = l2_reg)
         dataset         = TensorDataset(self.train_x, self.train_y)
         loader          = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         self.rec_losses = []
@@ -90,6 +95,7 @@ class BNN_Dropout:
         bs  = torch.distributions.Bernoulli(1 - self.dropout_rate)
         for layer in net:
             if isinstance(layer, nn.Linear):
-                vec                = bs.sample((layer.weight.shape[1], ))
-                layer.weight.data *= vec
+                if layer.weight.shape[1] > 1:
+                    vec                = bs.sample((layer.weight.shape[1], ))
+                    layer.weight.data *= vec
         return net
