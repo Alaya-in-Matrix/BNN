@@ -8,6 +8,7 @@ from copy import deepcopy
 class NN_Dropout(nn.Module):
 
     def __init__(self, dim, act, num_hidden, num_layers, dropout_rate, dropout_input = False):
+        torch.set_default_dtype(torch.float64)
         super(NN_Dropout, self).__init__()
         self.dim           = dim
         self.act           = act
@@ -58,7 +59,9 @@ class BNN_Dropout:
     # TODO: logging
     # TODO: normalize input
     def train(self, X, y):
-        self.train_x    = X
+        self.x_mean     = X.mean(dim = 0)
+        self.x_std      = X.std(dim = 0)
+        self.train_x    = (X - self.x_mean) /self.x_std
         self.train_y    = y
         num_train       = self.train_x.shape[0]
         l2_reg          = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau)
@@ -80,14 +83,14 @@ class BNN_Dropout:
                     loss.backward(retain_graph = True)
                     return loss
                 opt.step(closure)
-            if epoch > 0 and epoch % 100 == 0:
+            if epoch > 0 and epoch % 10 == 0:
                 true_loss = criterion(self.nn(self.train_x), self.train_y)
                 print("After %d epochs, loss is %g" % (epoch + 1, true_loss))
                 self.rec_losses.append(true_loss)
     
     def predict(self, x):
         self.nn.eval()
-        pred = self.nn(x)
+        pred = self.nn((x - self.x_mean) / self.x_std)
         return pred
 
     def sample(self):
