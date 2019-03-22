@@ -59,19 +59,19 @@ class BNN_Dropout:
     # TODO: logging
     # TODO: normalize input
     def train(self, X, y):
-        self.x_mean     = X.mean(dim = 0)
-        self.x_std      = X.std(dim = 0)
-        self.y_mean     = y.mean()
-        self.y_std      = y.std()
-        self.train_x    = (X - self.x_mean) / self.x_std
-        self.train_y    = (y - self.y_mean) / self.y_std
-        num_train       = self.train_x.shape[0]
-        self.l2_reg     = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau)
-        criterion       = nn.MSELoss()
-        opt             = torch.optim.Adam(self.nn.parameters(), lr = self.lr, weight_decay = self.l2_reg)
-        dataset         = TensorDataset(self.train_x, self.train_y)
-        loader          = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
-        scheduler       = torch.optim.lr_scheduler.StepLR(opt, step_size = int(self.num_epochs / 4), gamma = 0.1)
+        self.x_mean  = X.mean(dim = 0)
+        self.x_std   = X.std(dim = 0)
+        self.y_mean  = y.mean()
+        self.y_std   = y.std()
+        self.train_x = (X - self.x_mean) / self.x_std
+        self.train_y = (y - self.y_mean) / self.y_std
+        num_train    = self.train_x.shape[0]
+        self.l2_reg  = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau)
+        criterion    = nn.MSELoss()
+        opt          = torch.optim.Adam(self.nn.parameters(), lr = self.lr, weight_decay = self.l2_reg)
+        dataset      = TensorDataset(self.train_x, self.train_y)
+        loader       = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
+        scheduler    = torch.optim.lr_scheduler.StepLR(opt, step_size = int(self.num_epochs / 4), gamma = 0.1)
         # scheduler       = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, min_lr = 1e-6)
         # scheduler       = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max = int(self.num_epochs / 4), eta_min = 1e-8)
         self.rec_losses = [np.inf for i in range(self.num_epochs)]
@@ -101,17 +101,25 @@ class BNN_Dropout:
         for i in range(n_samples):
             preds[:, i] = nns[i]((x - self.x_mean) / self.x_std).reshape((x.shape[0], ))
         preds = preds * self.y_std + self.y_mean
-        return preds.mean(dim = 1), preds.var(dim = 1)
+        return preds.mean(dim = 1), preds.var(dim = 1) + 1 / self.tau
 
-    def validate(self, x_test, y_test, n_samples = 20):
-        m, v = self.predict_mv(x_test)
-        m    = m.reshape(y_test.shape)
-        v    = v.reshape(y_test.shape)
-        s    = v.sqrt()
-        mse  = torch.nn.MSELoss()(m.reshape(y_test.shape), y_test)
-        rmse = torch.sqrt(mse).item()
-        nll  = -1 * np.mean([torch.distributions.Normal(m[i], s[i]).log_prob(y_test[i]).item() for i in range(x_test.shape[0])])
+    def validate(self, x_test, y_test, n_samples = 100):
+        num_test = x_test.shape[0]
+        y_test   = y_test.squeeze()
+        preds    = torch.zeros(n_samples, num_test)
+        for i in range(n_samples):
+            nn          = self.sample()
+            preds[i, :] = nn((x_test - self.x_mean) / self.x_std).squeeze()
+        preds = preds * self.y_std + self.y_mean
+        rmse  = torch.sqrt(torch.mean((y_test - preds)**2)).item()
+        ll    = torch.logsumexp(-0.5 * self.tau * (y_test - preds)**2, dim = 0) - np.log(n_samples) - 0.5 * np.log(2 * np.pi) + 0.5 * np.log(self.tau)
+        nll   = -1 * ll.mean()
         return rmse, nll
+
+        # # We compute the test log-likelihood
+        # ll = (logsumexp(-0.5 * self.tau * (y_test[None] - Yt_hat)**2., 0) - np.log(T) 
+        #     - 0.5*np.log(2*np.pi) + 0.5*np.log(self.tau))
+        # test_ll = np.mean(ll)
         
     def sample(self):
         net = deepcopy(self.nn.nn)
