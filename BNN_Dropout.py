@@ -42,23 +42,30 @@ class NN_Dropout(nn.Module):
         return x
 
 class BNN_Dropout:
-    def __init__(self, dim, act, conf):
+    def __init__(self, dim, act = nn.ReLU(), conf = dict()):
         self.dim          = dim
         self.act          = act
-        self.num_hidden   = conf.get('num_hidden', 50)
-        self.num_layers   = conf.get('num_layers', 3)
+        self.num_hidden   = conf.get('num_hidden',   50)
+        self.num_layers   = conf.get('num_layers',   3)
+        self.num_epochs   = conf.get('num_epochs',   40)
         self.dropout_rate = conf.get('dropout_rate', 0.05)
-        self.lr           = conf.get('lr', 1e-3)
-        self.batch_size   = conf.get('batch_size', 128)
-        self.num_epochs   = conf.get('num_epochs', 40)
-        self.tau          = conf.get('tau', 1)
-        self.lscale       = conf.get('lscale', 1e-2)
-        self.print_every  = conf.get('print_every', 100)
+        self.lr           = conf.get('lr',           1e-3)
+        self.batch_size   = conf.get('batch_size',   128)
+        self.tau          = conf.get('tau',          0.01)
+        self.lscale       = conf.get('lscale',       1e-2)
+        self.print_every  = conf.get('print_every',  100)
         self.nn           = NN_Dropout(dim, self.act, self.num_hidden, self.num_layers, self.dropout_rate)
+        if torch.cuda.is_available():
+            self.nn = self.nn.cuda()
 
     # TODO: logging
     # TODO: normalize input
-    def train(self, X, y):
+    def train(self, X_, y_):
+        X = X_.clone()
+        y = y_.clone()
+        if torch.cuda.is_available():
+            X = X.cuda()
+            y = y.cuda()
         self.x_mean  = X.mean(dim = 0)
         self.x_std   = X.std(dim = 0)
         self.y_mean  = y.mean()
@@ -72,9 +79,6 @@ class BNN_Dropout:
         dataset      = TensorDataset(self.train_x, self.train_y)
         loader       = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         scheduler    = torch.optim.lr_scheduler.StepLR(opt, step_size = int(self.num_epochs / 4), gamma = 0.1)
-        # scheduler       = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, min_lr = 1e-6)
-        # scheduler       = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max = int(self.num_epochs / 4), eta_min = 1e-8)
-        self.rec_losses = [np.inf for i in range(self.num_epochs)]
         for epoch in range(self.num_epochs):
             scheduler.step()
             for bx, by in loader:
@@ -85,10 +89,10 @@ class BNN_Dropout:
                     loss.backward(retain_graph = True)
                     return loss
                 opt.step(closure)
-            true_loss     = criterion(self.nn(self.train_x), self.train_y)
-            self.rec_losses[epoch] = true_loss.item()
             if (epoch + 1) % self.print_every == 0:
+                true_loss = criterion(self.nn(self.train_x), self.train_y)
                 print("After %d epochs, loss is %g" % (epoch + 1, true_loss))
+        self.nn = self.nn.cpu()
     
     def predict(self, x):
         self.nn.eval()
@@ -103,7 +107,7 @@ class BNN_Dropout:
         preds = preds * self.y_std + self.y_mean
         return preds.mean(dim = 1), preds.var(dim = 1) + 1 / self.tau
 
-    def validate(self, x_test, y_test, n_samples = 100):
+    def validate(self, x_test, y_test, n_samples = 1000):
         num_test = x_test.shape[0]
         y_test   = y_test.squeeze()
         preds    = torch.zeros(n_samples, num_test)
@@ -115,11 +119,6 @@ class BNN_Dropout:
         ll    = torch.logsumexp(-0.5 * self.tau * (y_test - preds)**2, dim = 0) - np.log(n_samples) - 0.5 * np.log(2 * np.pi) + 0.5 * np.log(self.tau)
         nll   = -1 * ll.mean()
         return rmse, nll
-
-        # # We compute the test log-likelihood
-        # ll = (logsumexp(-0.5 * self.tau * (y_test[None] - Yt_hat)**2., 0) - np.log(T) 
-        #     - 0.5*np.log(2*np.pi) + 0.5*np.log(self.tau))
-        # test_ll = np.mean(ll)
         
     def sample(self):
         net = deepcopy(self.nn.nn)

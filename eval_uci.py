@@ -33,10 +33,10 @@ test_x  = torch.FloatTensor(test_x)
 test_y  = torch.FloatTensor(test_y)
 
 conf                 = dict()
-conf['dropout_rate'] = 0.03
-conf['lr']           = 1e-3
-conf['tau']          = 0.075
-conf['batch_size']   = 32
+conf['dropout_rate'] = 0.05
+conf['lr']           = 5e-3
+conf['tau']          = 1e-2
+conf['batch_size']   = 128
 conf['num_epochs']   = 4000
 conf['num_layers']   = 1
 conf['num_hidden']   = 50
