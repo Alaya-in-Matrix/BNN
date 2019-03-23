@@ -115,9 +115,10 @@ class BNN_Dropout:
             nn          = self.sample()
             preds[i, :] = nn((x_test - self.x_mean) / self.x_std).squeeze()
         preds = preds * self.y_std + self.y_mean
-        rmse  = torch.sqrt(torch.mean((y_test - preds)**2)).item()
+        rmse  = torch.sqrt(torch.mean((y_test - preds.mean(dim = 0))**2)).item()
         ll    = torch.logsumexp(-0.5 * self.tau * (y_test - preds)**2, dim = 0) - np.log(n_samples) - 0.5 * np.log(2 * np.pi) + 0.5 * np.log(self.tau)
         nll   = -1 * ll.mean()
+        rmse_ = torch.sqrt(torch.mean((y_test - preds)**2)).item()
         return rmse, nll
         
     def sample(self):

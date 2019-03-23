@@ -19,3 +19,5 @@ Possible models:
 ## Possible Ideas
 
 - Variational continual learning + PSIS diagnostic
+- HMC + Importance sampling
+- Kaiming and Xavier prior

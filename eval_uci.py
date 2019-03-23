@@ -5,7 +5,7 @@ import toml
 from BNN_Dropout import BNN_Dropout
 from sklearn.model_selection import train_test_split
 
-dataset_name = 'concrete'
+dataset_name = 'bostonHousing'
 dataset_dir  = 'UCI_Datasets/' + dataset_name + "/data/"
 data         = np.loadtxt(dataset_dir + "data.txt")
 feature_id   = np.loadtxt(dataset_dir + "index_features.txt", dtype=int)
@@ -13,7 +13,7 @@ target_id    = np.loadtxt(dataset_dir + "index_target.txt", dtype = int)
 xs           = data[:,feature_id]
 ys           = data[:,target_id][:,None]
 
-split_id = 19
+split_id = 0
 train_id = np.loadtxt(dataset_dir + "index_train_{}".format(split_id) + ".txt", dtype = int)
 test_id  = np.loadtxt(dataset_dir + "index_test_{}".format(split_id) + ".txt", dtype = int)
 
@@ -23,7 +23,7 @@ test_x  = xs[test_id]
 test_y  = ys[test_id]
 dim     = train_x.shape[1]
 
-train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size = 0.1)
+train_x, valid_x, train_y, valid_y = train_test_split(train_x, train_y, test_size = 0.001)
 
 train_x = torch.FloatTensor(train_x)
 train_y = torch.FloatTensor(train_y)
@@ -33,14 +33,15 @@ test_x  = torch.FloatTensor(test_x)
 test_y  = torch.FloatTensor(test_y)
 
 conf                 = dict()
-conf['dropout_rate'] = 0.05
-conf['lr']           = 5e-3
-conf['tau']          = 1e-2
+conf['dropout_rate'] = 0.01
+conf['lr']           = 10 ** (-1.62)
+conf['tau']          = 10 ** (-1.24)
+conf['lscale']       = 10 ** (-2.0)
 conf['batch_size']   = 128
-conf['num_epochs']   = 4000
+conf['num_epochs']   = 1600
 conf['num_layers']   = 1
 conf['num_hidden']   = 50
-conf['print_every']  = 100
+conf['print_every']  = 1
 
 model = BNN_Dropout(dim, act = nn.ReLU(), conf = conf)
 model.train(train_x, train_y)
