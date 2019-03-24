@@ -60,9 +60,7 @@ class BNN_Dropout:
 
     # TODO: logging
     # TODO: normalize input
-    def train(self, X_, y_):
-        X = X_.clone()
-        y = y_.clone()
+    def train(self, X, y):
         if torch.cuda.is_available():
             X = X.cuda()
             y = y.cuda()
