@@ -7,7 +7,7 @@ from BNN_Dropout import BNN_Dropout
 from BNN_SGDHMC  import BNN_SGDHMC
 from sklearn.model_selection import train_test_split
 
-dataset_name = 'concrete'
+dataset_name = 'bostonHousing'
 dataset_dir  = 'UCI_Datasets/' + dataset_name + "/data/"
 data         = np.loadtxt(dataset_dir + "data.txt")
 feature_id   = np.loadtxt(dataset_dir + "index_features.txt", dtype=int)
@@ -15,7 +15,7 @@ target_id    = np.loadtxt(dataset_dir + "index_target.txt", dtype = int)
 xs           = data[:,feature_id]
 ys           = data[:,target_id][:,None]
 
-split_id = 12
+split_id = 4
 train_id = np.loadtxt(dataset_dir + "index_train_{}".format(split_id) + ".txt", dtype = int)
 test_id  = np.loadtxt(dataset_dir + "index_test_{}".format(split_id) + ".txt", dtype = int)
 
@@ -32,9 +32,9 @@ test_y  = torch.FloatTensor(test_y)
 
 conf                 = dict()
 conf['dropout_rate'] = 0.01
-conf['lr']           = 0.1
-conf['tau']          = 0.15
-conf['lscale']       = 0.25
+conf['lr']           = 0.007
+conf['tau']          = 0.11
+conf['lscale']       = 0.05
 conf['batch_size']   = 128
 conf['num_epochs']   = 1600
 conf['num_layers']   = 3
