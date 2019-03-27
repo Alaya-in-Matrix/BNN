@@ -21,6 +21,7 @@ Possible models:
 - Variational continual learning + PSIS diagnostic
 - HMC + Importance sampling
 - Kaiming and Xavier prior
+- Population-based MCMC: 直接sample from D*N 之vector
 
 ## MC-dropout on concreate dataset
 

@@ -54,6 +54,7 @@ class BNN_Dropout:
         self.tau          = conf.get('tau',          0.01)
         self.lscale       = conf.get('lscale',       1e-2)
         self.print_every  = conf.get('print_every',  100)
+        self.normalize    = conf.get('normalize',    True)
         self.nn           = NN_Dropout(dim, self.act, self.num_hidden, self.num_layers, self.dropout_rate)
         if torch.cuda.is_available():
             self.nn = self.nn.cuda()
@@ -64,10 +65,16 @@ class BNN_Dropout:
         if torch.cuda.is_available():
             X = X.cuda()
             y = y.cuda()
-        self.x_mean  = X.mean(dim = 0)
-        self.x_std   = X.std(dim = 0)
-        self.y_mean  = y.mean()
-        self.y_std   = y.std()
+        if self.normalize:
+            self.x_mean  = X.mean(dim = 0)
+            self.x_std   = X.std(dim = 0)
+            self.y_mean  = y.mean()
+            self.y_std   = y.std()
+        else:
+            self.x_mean  = 0
+            self.x_std   = 1
+            self.y_mean  = 0
+            self.y_std   = 1
         self.train_x = (X - self.x_mean) / self.x_std
         self.train_y = (y - self.y_mean) / self.y_std
         num_train    = self.train_x.shape[0]
