@@ -37,21 +37,19 @@ class BNN_SVI:
         self.num_hidden     = conf.get('num_hidden',   50)
         self.num_layers     = conf.get('num_layers',   3)
         self.num_iters      = conf.get('num_iters',    400)
-        self.lr             = conf.get('lr',           1e-3)
         self.batch_size     = conf.get('batch_size',   128)
         self.print_every    = conf.get('print_every',  100)
+        self.lr             = conf.get('lr',           1e-3)
         self.weight_prior   = conf.get('weight_prior', 1.0)
         self.bias_prior     = conf.get('bias_prior',   1.0)
-        self.log_noise_mean = conf.get('log_noise_mean', -2.0)
-        self.log_noise_std  = conf.get('log_noise_std', 1.)
+        self.noise_level    = conf.get('noise_level',  0.1) # XXX: noise level corresponding to the standardized output
         self.nn             = NN(dim, self.act, self.num_hidden, self.num_layers).nn
 
     def model(self, X, y):
         """
         Normal distribution for weights and bias
-        Gamma for precision
         """
-        noise_scale = pyro.sample("noise_scale", pyro.distributions.LogNormal(self.log_noise_mean, self.log_noise_std))
+        noise_scale = self.noise_level
         num_x       = X.shape[0]
         priors      = dict()
         for n, p in self.nn.named_parameters():
@@ -69,11 +67,8 @@ class BNN_SVI:
                     obs = y[ind])
 
     def guide(self, X, y):
-        softplus       = nn.Softplus()
-        log_noise_mean = pyro.param("log_noise_mean", self.log_noise_mean * torch.ones(1))
-        log_noise_std  = pyro.param("log_noise_std",  self.log_noise_std  * torch.ones(1), constraint = constraints.positive)
-        noise_scale    = pyro.sample("noise_scale", pyro.distributions.LogNormal(log_noise_mean, log_noise_std))
-        priors         = dict()
+        priors   = dict()
+        softplus = nn.Softplus()
         for n, p in self.nn.named_parameters():
             if "weight" in n:
                 loc   = pyro.param("mu_"    + n, self.weight_prior * torch.randn_like(p))
