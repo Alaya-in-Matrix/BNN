@@ -47,10 +47,24 @@ class NN(nn.Module):
         return self.nn(x)
 
 class MixturePrior:
-    def __init__(self, factor = 0.5, s1 = 10, s2 = 0.05):
-        self.factor = factor
-        self.s1     = s1
-        self.s2     = s2
+    def __init__(self, factor = 0.5, s1 = 10, s2 = 0.01):
+        self.factor = torch.tensor(factor)
+        self.dist1  = torch.distributions.Normal(0, s1)
+        self.dist2  = torch.distributions.Normal(0, s2)
+    def log_prob(self, samples):
+        lp1   = self.dist1.log_prob(samples).sum()
+        lp2   = self.dist2.log_prob(samples).sum()
+        if self.factor   == 1:
+            mix_lp = lp1
+        elif self.factor == 0:
+            mix_lp = lp2
+        else:
+            log_ratio = torch.log(self.factor / (1 - self.factor)) + (lp1 - lp2)
+            if log_ratio > 0:
+                mix_lp = lp1 + torch.log(1 + torch.exp(-1 * log_ratio)) + torch.log(self.factor)
+            else:
+                mix_lp = lp2 + torch.log(1 + torch.exp(log_ratio))   + torch.log(1 - self.factor)
+        return mix_lp
 
 # TODO: mixture prior
 class BNN_BBB:
@@ -59,15 +73,18 @@ class BNN_BBB:
         self.act         = act
         self.num_hidden  = conf.get('num_hidden',   50)
         self.num_layers  = conf.get('num_layers',   3)
-        self.num_epochs  = conf.get('num_epochs',    100)
+        self.num_epochs  = conf.get('num_epochs',   100)
         self.batch_size  = conf.get('batch_size',   32)
         self.print_every = conf.get('print_every',  1)
         self.lr          = conf.get('lr',           1e-3)
+        self.pi          = conf.get('pi',           0.25)
+        self.s1          = conf.get('pi',           2)
+        self.s2          = conf.get('pi',           1)
         self.noise_level = conf.get('noise_level',  0.1) # XXX: noise level corresponding to the standardized output
         self.n_samples   = conf.get('n_samples', 1)
         self.normalize   = conf.get('normalize', True)
         self.nn          = NN(dim, self.act, self.num_hidden, self.num_layers).nn
-        self.prior       = torch.distributions.Normal(0., 1.)
+        self.prior       = MixturePrior(factor = self.pi, s1 = self.s1, s2 = self.s2)
 
     def loss(self, X, y):
         num_x   = X.shape[0]
@@ -79,8 +96,8 @@ class BNN_BBB:
         log_pw  = torch.tensor(0.)
         for layer in self.nn:
             if isinstance(layer, GaussianLinear):
-                log_qw = log_qw + layer.log_prob
-                log_pw = log_pw + self.prior.log_prob(layer.wb).sum()
+                log_qw += layer.log_prob
+                log_pw += self.prior.log_prob(layer.wb).sum()
         kl_term = log_qw - log_pw
         return log_lik, kl_term
 
