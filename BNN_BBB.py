@@ -46,6 +46,12 @@ class NN(nn.Module):
     def forward(self, x):
         return self.nn(x)
 
+class MixturePrior:
+    def __init__(self, factor = 0.5, s1 = 10, s2 = 0.05):
+        self.factor = factor
+        self.s1     = s1
+        self.s2     = s2
+
 # TODO: mixture prior
 class BNN_BBB:
     def __init__(self, dim, act = nn.Tanh(), conf = dict()):

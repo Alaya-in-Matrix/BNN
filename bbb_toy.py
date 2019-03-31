@@ -14,14 +14,15 @@ xs          = torch.linspace(-3, 3, num_data).reshape(num_data, 1)
 ys          = torch.FloatTensor(np.sinc(xs.numpy()))
 ys          = ys + noise_level * torch.randn_like(ys)
 
-conf                = dict()
-conf['num_epochs']  = 2000
-conf['batch_size']  = 10
-conf['num_layers']  = 3
-conf['print_every'] = 50
-conf['lr']          = 1e-2
-conf['n_samples']   = 1
-model               = BNN_BBB(dim = 1, conf = conf)
+conf_bbb                = dict()
+conf_bbb['num_epochs']  = 4000
+conf_bbb['batch_size']  = 25
+conf_bbb['num_layers']  = 1
+conf_bbb['print_every'] = 50
+conf_bbb['lr']          = 1e-2
+conf_bbb['n_samples']   = 1
+conf_bbb['noise_level'] = noise_level
+model                   = BNN_BBB(dim = 1, act = nn.Tanh(), conf = conf_bbb)
 
 num_train = 50
 train_id  = torch.randperm(num_data)[:num_train]

@@ -1,27 +1,16 @@
 # README
 
-Bayesian optimization through Bayeisan neural network and Thompson sampling
+Implementation of several Bayeisan neural networks 
 
-Possible models:
+Implemented:
 
-- SVI with reparameterization trick
-- MCMC with SGD
-- Dropout
-- Neural process
-- [Variational continual learning](https://github.com/nvcuong/variational-continual-learning/blob/master/ddm/alg/vcl.py)
-    - See citations of the original paper
-    - Jordan: Streaming Variational Bayes
+- MC dropout
+- SGD-HMC
+- SVI 
+- BBB
 
-## Papers to Read
+![Compare different BNN models](./img/bnn_models.png)
 
-- [Yes, but Did It Work?: Evaluating Variational Inference](https://arxiv.org/pdf/1802.02538.pdf)
-
-## Possible Ideas
-
-- Variational continual learning + PSIS diagnostic
-- HMC + Importance sampling
-- Kaiming and Xavier prior
-- Population-based MCMC: 直接sample from D*N 之vector
 
 ## MC-dropout on concreate dataset
 
