@@ -96,14 +96,13 @@ class BNN_BBB:
         self.pi          = conf.get('pi',           0.25)
         self.s1          = conf.get('s1',           2.)
         self.s2          = conf.get('s2',           1.)
-        # self.noise_level = conf.get('noise_level',  0.1) # XXX: noise level corresponding to the standardized output
-        self.alpha     = torch.tensor(conf.get('alpha', 1000.))
-        self.beta      = torch.tensor(conf.get('beta',  5.))
-        self.n_samples = conf.get('n_samples', 1)
-        self.normalize = conf.get('normalize', True)
-        self.nn        = NN(dim, self.act, self.num_hidden, self.num_layers, self.alpha, self.beta).nn
-        self.w_prior   = MixturePrior(factor = self.pi, s1 = self.s1, s2 = self.s2)
-        self.n_prior   = torch.distributions.Gamma(F.softplus(self.alpha), F.softplus(self.beta))
+        self.alpha       = torch.tensor(conf.get('alpha', 1000.))
+        self.beta        = torch.tensor(conf.get('beta',  5.))
+        self.n_samples   = conf.get('n_samples', 1)
+        self.normalize   = conf.get('normalize', True)
+        self.nn          = NN(dim, self.act, self.num_hidden, self.num_layers, self.alpha, self.beta).nn
+        self.w_prior     = MixturePrior(factor = self.pi, s1 = self.s1, s2 = self.s2)
+        self.n_prior     = torch.distributions.Gamma(F.softplus(self.alpha), F.softplus(self.beta))
 
     def loss(self, X, y):
         num_x             = X.shape[0]
@@ -154,14 +153,14 @@ class BNN_BBB:
                     _log_lik, _kl_term  = self.loss(bx, by)
                     log_lik += _log_lik
                     kl_term += _kl_term
-                pi               = 2**(num_batch - batch_cnt) / (2**(num_batch) - 1)
-                loss             = (pi * kl_term - log_lik) / self.n_samples
+                pi   = 2**(num_batch - batch_cnt) / (2**(num_batch) - 1)
+                loss = (pi * kl_term - log_lik) / self.n_samples
                 loss.backward()
                 opt.step()
                 batch_cnt += 1
             if ((epoch + 1) % self.print_every == 0):
                 log_lik, kl_term = self.loss(self.train_x, self.train_y)
-                print("[Epoch %5d, loss = %g]" % (epoch + 1, kl_term - log_lik))
+                print("[Epoch %5d, loss = %.4g (KL = %.4g, -log_lik = %.4g)]" % (epoch + 1, kl_term - log_lik, kl_term, -1 * log_lik))
 
     def sample(self, n_samples = 100):
         pass
