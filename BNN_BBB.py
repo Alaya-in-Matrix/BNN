@@ -26,31 +26,13 @@ class GaussianLinear(nn.Module):
     def extra_repr(self):
         return 'in_features={}, out_features={}'.format(self.in_features, self.out_features)
 
-class NoiseLayer(nn.Module):
-    def __init__(self, alpha, beta):
-        super(NoiseLayer, self).__init__()
-        self.alpha = Parameter(alpha)
-        self.beta  = Parameter(beta)
-
-    def extra_repr(self):
-        return 'alpha={}, beta={}'.format(self.alpha, self.beta)
-
-    def forward(self, input):
-        self.dist      = torch.distributions.Gamma(F.softplus(self.alpha), F.softplus(self.beta))
-        self.precision = self.dist.rsample()
-        self.log_prob  = self.dist.log_prob(self.precision).sum()
-        noise_level    = 1 / self.precision.sqrt()
-        return input, noise_level
-
 class NN(nn.Module):
-    def __init__(self, dim, act, num_hidden, num_layers, alpha, beta):
+    def __init__(self, dim, act, num_hidden, num_layers):
         super(NN, self).__init__()
         self.dim        = dim
         self.act        = act
         self.num_hidden = num_hidden
         self.num_layers = num_layers
-        self.alpha      = alpha
-        self.beta       = beta
         self.nn         = self.mlp()
     def mlp(self):
         layers  = []
@@ -60,7 +42,6 @@ class NN(nn.Module):
             layers.append(self.act)
             pre_dim = self.num_hidden
         layers.append(GaussianLinear(pre_dim, 1))
-        layers.append(NoiseLayer(self.alpha, self.beta))
         return nn.Sequential(*layers)
     def forward(self, x):
         return self.nn(x)
@@ -71,8 +52,8 @@ class MixturePrior:
         self.dist1  = torch.distributions.Normal(0, s1)
         self.dist2  = torch.distributions.Normal(0, s2)
     def log_prob(self, samples):
-        lp1   = self.dist1.log_prob(samples).sum()
-        lp2   = self.dist2.log_prob(samples).sum()
+        lp1 = self.dist1.log_prob(samples).sum()
+        lp2 = self.dist2.log_prob(samples).sum()
         if self.factor   == 1:
             mix_lp = lp1
         elif self.factor == 0:
@@ -99,30 +80,24 @@ class BNN_BBB:
         self.pi          = conf.get('pi',           0.25)
         self.s1          = conf.get('s1',           2.)
         self.s2          = conf.get('s2',           1.)
-        self.alpha       = torch.tensor(conf.get('alpha', 1000.))
-        self.beta        = torch.tensor(conf.get('beta',  5.))
-        self.n_samples   = conf.get('n_samples', 1)
+        self.noise_level = conf.get('noise_level',  0.05)
+        self.n_samples   = conf.get('n_samples',    1)
         self.normalize   = conf.get('normalize', True)
-        self.nn          = NN(dim, self.act, self.num_hidden, self.num_layers, self.alpha, self.beta).nn
+        self.nn          = NN(dim, self.act, self.num_hidden, self.num_layers).nn
         self.w_prior     = MixturePrior(factor = self.pi, s1 = self.s1, s2 = self.s2)
-        self.n_prior     = torch.distributions.Gamma(F.softplus(self.alpha), F.softplus(self.beta))
 
     def loss(self, X, y):
-        num_x             = X.shape[0]
-        X                 = X.reshape(num_x, self.dim)
-        y                 = y.reshape(num_x)
-        pred, noise_level = self.nn(X)
-        pred              = pred.reshape(num_x)
-        log_lik           = torch.distributions.Normal(pred, noise_level).log_prob(y).sum()
-        log_qw            = torch.tensor(0.)
-        log_pw            = torch.tensor(0.)
+        num_x   = X.shape[0]
+        X       = X.reshape(num_x, self.dim)
+        y       = y.reshape(num_x)
+        pred    = self.nn(X).reshape(num_x)
+        log_lik = torch.distributions.Normal(pred, self.noise_level).log_prob(y).sum()
+        log_qw  = torch.tensor(0.)
+        log_pw  = torch.tensor(0.)
         for layer in self.nn:
             if isinstance(layer, GaussianLinear):
                 log_qw += layer.log_prob
                 log_pw += self.w_prior.log_prob(layer.wb).sum()
-            elif isinstance(layer, NoiseLayer):
-                log_qw += layer.log_prob
-                log_qw += self.n_prior.log_prob(layer.precision).sum()
         kl_term = log_qw - log_pw
         return log_lik, kl_term
 
@@ -142,10 +117,11 @@ class BNN_BBB:
             self.y_std   = 1
         self.train_x = (X - self.x_mean) / self.x_std
         self.train_y = (y - self.y_mean) / self.y_std
-        dataset      = TensorDataset(self.train_x, self.train_y)
-        loader       = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
-        opt          = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
-        num_batch    = len(loader)
+
+        dataset   = TensorDataset(self.train_x, self.train_y)
+        loader    = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
+        opt       = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
+        num_batch = len(loader)
         for epoch in range(self.num_epochs):
             batch_cnt = 1
             for bx, by in loader:
@@ -163,7 +139,7 @@ class BNN_BBB:
                 batch_cnt += 1
             if ((epoch + 1) % self.print_every == 0):
                 log_lik, kl_term = self.loss(self.train_x, self.train_y)
-                print("[Epoch %5d, loss = %.4g (KL = %.4g, -log_lik = %.4g)]" % (epoch + 1, kl_term - log_lik, kl_term, -1 * log_lik))
+                print("[Epoch %5d, loss = %.4g (KL = %.4g, -log_lik = %.4g)]" % (epoch + 1, kl_term - log_lik, kl_term, -1 * log_lik), flush = True)
 
     def sample(self, n_samples = 100):
         pass
