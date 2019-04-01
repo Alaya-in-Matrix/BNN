@@ -88,11 +88,11 @@ class BNN_BBB:
         self.dim         = dim
         self.act         = act
         self.num_hidden  = conf.get('num_hidden',   50)
-        self.num_layers  = conf.get('num_layers',   3)
-        self.num_epochs  = conf.get('num_epochs',   100)
+        self.num_layers  = conf.get('num_layers',   1)
+        self.num_epochs  = conf.get('num_epochs',   1000)
         self.batch_size  = conf.get('batch_size',   32)
         self.print_every = conf.get('print_every',  1)
-        self.lr          = conf.get('lr',           1e-3)
+        self.lr          = conf.get('lr',           1e-2)
         self.pi          = conf.get('pi',           0.25)
         self.s1          = conf.get('s1',           2.)
         self.s2          = conf.get('s2',           1.)

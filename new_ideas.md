@@ -6,6 +6,7 @@ Possible models:
 - MCMC with SGD
 - Dropout
 - Neural process
+- Multi-objective optimization (Multi-gradient descent), treat likeliihood term and KL term as two objectives
 - [Variational continual learning](https://github.com/nvcuong/variational-continual-learning/blob/master/ddm/alg/vcl.py)
     - See citations of the original paper
     - Jordan: Streaming Variational Bayes
