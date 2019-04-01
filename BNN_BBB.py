@@ -78,8 +78,8 @@ class BNN_BBB:
         self.print_every = conf.get('print_every',  1)
         self.lr          = conf.get('lr',           1e-3)
         self.pi          = conf.get('pi',           0.25)
-        self.s1          = conf.get('pi',           2)
-        self.s2          = conf.get('pi',           1)
+        self.s1          = conf.get('s1',           2.)
+        self.s2          = conf.get('s2',           1.)
         self.noise_level = conf.get('noise_level',  0.1) # XXX: noise level corresponding to the standardized output
         self.n_samples   = conf.get('n_samples', 1)
         self.normalize   = conf.get('normalize', True)
