@@ -32,6 +32,9 @@ class NoiseLayer(nn.Module):
         self.alpha = Parameter(alpha)
         self.beta  = Parameter(beta)
 
+    def extra_repr(self):
+        return 'alpha={}, beta={}'.format(self.alpha, self.beta)
+
     def forward(self, input):
         self.dist      = torch.distributions.Gamma(F.softplus(self.alpha), F.softplus(self.beta))
         self.precision = self.dist.rsample()
@@ -56,7 +59,7 @@ class NN(nn.Module):
             layers.append(GaussianLinear(pre_dim, self.num_hidden))
             layers.append(self.act)
             pre_dim = self.num_hidden
-        layers.append(nn.Linear(pre_dim, 1, bias = True))
+        layers.append(GaussianLinear(pre_dim, 1))
         layers.append(NoiseLayer(self.alpha, self.beta))
         return nn.Sequential(*layers)
     def forward(self, x):
