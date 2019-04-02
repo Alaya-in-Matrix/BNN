@@ -168,5 +168,12 @@ class BNN_BBB:
     def sample(self, n_samples = 100):
         pass
 
+    def sample_predict(self, x, n_samples = 100):
+        num_x = x.shape[0]
+        pred  = torch.zeros(n_samples, num_x)
+        for i in range(n_samples):
+            pred[i, :] = (self.nn((x - self.x_mean) / self.x_std) * self.y_std + self.y_mean).reshape(num_x)
+        return pred
+
     def validate(self, test_X, test_y):
         pass
