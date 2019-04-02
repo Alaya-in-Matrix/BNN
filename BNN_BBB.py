@@ -54,7 +54,7 @@ class MixturePrior:
         self.factor = torch.tensor(factor)
         mu = torch.tensor(0.)
         s1 = torch.tensor(s1)
-        s2 = torch.tensor(s1)
+        s2 = torch.tensor(s2)
         if torch.cuda.is_available():
             self.factor = self.factor.cuda()
             mu = mu.cuda()
