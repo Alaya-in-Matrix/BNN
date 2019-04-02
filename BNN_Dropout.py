@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
+from util import ScaleLayer
 from copy import deepcopy
 
 class NN_Dropout(nn.Module):
@@ -26,9 +27,11 @@ class NN_Dropout(nn.Module):
         pre_dim = self.dim
         for i in range(self.num_layers):
             layers.append(nn.Linear(pre_dim, self.num_hidden, bias=True))
+            layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
             layers.append(self.act)
             pre_dim = self.num_hidden
         layers.append(nn.Linear(pre_dim, 1, bias = True))
+        layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
         return nn.Sequential(*layers)
     
     def forward(self, x):

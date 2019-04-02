@@ -1,6 +1,7 @@
 from   torch.distributions import constraints
 from   torch.nn.parameter  import Parameter
 from   torch.utils.data    import TensorDataset, DataLoader
+from   util                import ScaleLayer
 import numpy               as np
 import torch
 import torch.nn            as nn
@@ -39,9 +40,11 @@ class NN(nn.Module):
         pre_dim = self.dim
         for i in range(self.num_layers):
             layers.append(GaussianLinear(pre_dim, self.num_hidden))
+            layers.append(ScaleLayer(1 / np.sqrt(1+pre_dim)))
             layers.append(self.act)
             pre_dim = self.num_hidden
         layers.append(GaussianLinear(pre_dim, 1))
+        layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
         return nn.Sequential(*layers)
     def forward(self, x):
         return self.nn(x)
@@ -49,8 +52,16 @@ class NN(nn.Module):
 class MixturePrior:
     def __init__(self, factor = 0.5, s1 = 10, s2 = 0.01):
         self.factor = torch.tensor(factor)
-        self.dist1  = torch.distributions.Normal(0, s1)
-        self.dist2  = torch.distributions.Normal(0, s2)
+        mu = torch.tensor(0.)
+        s1 = torch.tensor(s1)
+        s2 = torch.tensor(s1)
+        if torch.cuda.is_available():
+            self.factor = self.factor.cuda()
+            mu = mu.cuda()
+            s1 = s1.cuda()
+            s2 = s2.cuda()
+        self.dist1  = torch.distributions.Normal(mu, s1)
+        self.dist2  = torch.distributions.Normal(mu, s2)
     def log_prob(self, samples):
         lp1 = self.dist1.log_prob(samples).sum()
         lp2 = self.dist2.log_prob(samples).sum()
@@ -85,6 +96,8 @@ class BNN_BBB:
         self.normalize   = conf.get('normalize', True)
         self.nn          = NN(dim, self.act, self.num_hidden, self.num_layers).nn
         self.w_prior     = MixturePrior(factor = self.pi, s1 = self.s1, s2 = self.s2)
+        if torch.cuda.is_available():
+            self.nn = self.nn.cuda()
 
     def loss(self, X, y):
         num_x   = X.shape[0]
@@ -94,6 +107,9 @@ class BNN_BBB:
         log_lik = torch.distributions.Normal(pred, self.noise_level).log_prob(y).sum()
         log_qw  = torch.tensor(0.)
         log_pw  = torch.tensor(0.)
+        if torch.cuda.is_available():
+            log_qw = log_qw.cuda()
+            log_pw = log_pw.cuda()
         for layer in self.nn:
             if isinstance(layer, GaussianLinear):
                 log_qw += layer.log_prob
@@ -105,6 +121,9 @@ class BNN_BBB:
         num_x = X.shape[0]
         X     = X.reshape(num_x, self.dim)
         y     = y.reshape(num_x)
+        if torch.cuda.is_available():
+            X = X.cuda()
+            y = y.cuda()
         if self.normalize:
             self.x_mean  = X.mean(dim = 0)
             self.x_std   = X.std(dim = 0)
@@ -126,8 +145,8 @@ class BNN_BBB:
             batch_cnt = 1
             for bx, by in loader:
                 opt.zero_grad()
-                log_lik = torch.tensor(0.)
-                kl_term = torch.tensor(0.)
+                log_lik = 0.
+                kl_term = 0.
                 for i in range(self.n_samples):
                     _log_lik, _kl_term  = self.loss(bx, by)
                     log_lik += _log_lik
@@ -140,6 +159,11 @@ class BNN_BBB:
             if ((epoch + 1) % self.print_every == 0):
                 log_lik, kl_term = self.loss(self.train_x, self.train_y)
                 print("[Epoch %5d, loss = %.4g (KL = %.4g, -log_lik = %.4g)]" % (epoch + 1, kl_term - log_lik, kl_term, -1 * log_lik), flush = True)
+        self.nn = self.nn.cpu()
+        self.x_mean = self.x_mean.cpu()
+        self.x_std  = self.x_std.cpu()
+        self.y_mean = self.y_mean.cpu()
+        self.y_std  = self.y_std.cpu()
 
     def sample(self, n_samples = 100):
         pass

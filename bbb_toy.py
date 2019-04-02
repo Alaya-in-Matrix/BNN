@@ -17,17 +17,17 @@ ys          = ys + noise_level * torch.randn_like(ys)
 conf_bbb                = dict()
 conf_bbb['num_epochs']  = 4000
 conf_bbb['batch_size']  = 128
-conf_bbb['num_layers']  = 2
-conf_bbb['print_every'] = 10
+conf_bbb['num_layers']  = 3
+conf_bbb['print_every'] = 50
 conf_bbb['n_samples']   = 1
-conf_bbb['lr']          = 0.03
-conf_bbb['pi']          = 0.75
-conf_bbb['s1']          = 0.5
-conf_bbb['s2']          = 5.0
+conf_bbb['lr']          = 1e-2
+conf_bbb['pi']          = 0.25
+conf_bbb['s1']          = 10.
+conf_bbb['s2']          = 0.1
 conf_bbb['noise_level'] = noise_level
 model                   = BNN_BBB(dim = 1, act = nn.Tanh(), conf = conf_bbb)
 
-num_train = 50
+num_train = 100
 train_id  = torch.randperm(num_data)[:num_train]
 train_x   = xs[train_id]
 train_y   = ys[train_id]

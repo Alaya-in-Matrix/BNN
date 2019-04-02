@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from pybnn.bohamiann   import Bohamiann
 from pybnn.util.layers import AppendLayer
+from util import ScaleLayer
 
 class NN(nn.Module):
     def __init__(self, dim, act, num_hidden, num_layers):
@@ -22,9 +23,11 @@ class NN(nn.Module):
         pre_dim = self.dim
         for i in range(self.num_layers):
             layers.append(nn.Linear(pre_dim, self.num_hidden, bias=True))
+            layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
             layers.append(self.act)
             pre_dim = self.num_hidden
         layers.append(nn.Linear(pre_dim, 1, bias = True))
+        layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
         return nn.Sequential(*layers)
     def forward(self, x):
         return self.log_std(self.nn(x))

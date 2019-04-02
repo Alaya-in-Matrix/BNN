@@ -1,6 +1,7 @@
 import pyro
 from   pyro.optim import Adam, SGD
 from   torch.distributions import constraints
+from   util import ScaleLayer
 import torch
 import torch.nn as nn
 import numpy    as np
@@ -22,13 +23,14 @@ class NN(nn.Module):
         pre_dim = self.dim
         for i in range(self.num_layers):
             layers.append(nn.Linear(pre_dim, self.num_hidden, bias=True))
+            layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
             layers.append(self.act)
             pre_dim = self.num_hidden
         layers.append(nn.Linear(pre_dim, 1, bias = True))
+        layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
         return nn.Sequential(*layers)
     def forward(self, x):
         return self.nn(x)
-
 
 class BNN_SVI:
     def __init__(self, dim, act = nn.Tanh(), conf = dict()):
