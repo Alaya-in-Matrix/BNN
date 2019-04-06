@@ -4,7 +4,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 
 class BNN(ABC):
-    def __init__(self, act = nn.ReLU(), num_hiddens = [50], conf = {}):
+    def __init__(self):
         pass
 
     @abstractmethod
@@ -23,10 +23,10 @@ class BNN(ABC):
         pass
 
     @abstractmethod
-    def sample_predict(nns, input):
+    def sample_predict(self, nns, input):
         pass
 
-    def validate(X, y, num_samples):
+    def validate(self, X, y, num_samples):
         num_test     = X.shape[0]
         y            = y.reshape(num_test)
         post_samples = self.sample(num_samples)
@@ -42,7 +42,7 @@ class BNN(ABC):
         lls          = torch.logsumexp(-0.5 * normed**2 - 0.5 * torch.log(2 * np.pi * noise_var.unsqueeze(1)), dim = 0) - np.log(num_samples)
         return rmse, nll_gaussian, -1 * lls.mean()
 
-    def predict_mv(input, num_samples = 20):
+    def predict_mv(self, input, num_samples = 20):
         num_test   = input.shape[0]
         nn_samples = [s[0] for s in self.sample(num_samples)]
         preds      = self.sample_predict(nn_samples, input)
