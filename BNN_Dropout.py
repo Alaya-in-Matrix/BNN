@@ -56,7 +56,7 @@ class BNN_Dropout(BNN):
             self.y_mean  = 0.
             self.y_std   = 1.
         self.train_x = (X - self.x_mean) / self.x_std
-        self.train_y = (y - self.x_mean) / self.y_std
+        self.train_y = (y - self.y_mean) / self.y_std
         self.l2_reg  = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau / self.y_std)
         criterion    = nn.MSELoss()
         opt          = torch.optim.Adam(self.nn.parameters(), lr = self.lr, weight_decay = self.l2_reg)
