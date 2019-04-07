@@ -79,6 +79,11 @@ class BNN_Dropout(BNN):
             if (epoch + 1) % self.print_every == 0:
                 print("[Epoch %5d, loss = %g]" % (epoch + 1, loss))
         self.nn = self.nn.cpu()
+        if self.normalize:
+            self.x_mean  = self.x_mean.cpu()
+            self.x_std   = self.x_std.cpu()
+            self.y_mean  = self.y_mean.cpu()
+            self.y_std   = self.y_std.cpu()
 
     def sample(self, num_samples = 1):
         nns = []
