@@ -20,6 +20,10 @@ class NN(nn.Module):
         self.num_layers   = len(num_hiddens)
         self.scale        = scale
         self.nn           = self.mlp()
+        for l in self.nn:
+            if type(l) == nn.Linear:
+                nn.init.xavier_uniform_(l.weight)
+                nn.init.zeros_(l.bias)
     
     def mlp(self):
         layers  = []

@@ -55,13 +55,20 @@ class BNN_Dropout(BNN):
             self.x_std   = 1.
             self.y_mean  = 0.
             self.y_std   = 1.
-        self.train_x = (X - self.x_mean) / self.x_std
-        self.train_y = (y - self.y_mean) / self.y_std
-        self.l2_reg  = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau / self.y_std)
-        criterion    = nn.MSELoss()
-        opt          = torch.optim.Adam(self.nn.parameters(), lr = self.lr, weight_decay = self.l2_reg)
-        dataset      = TensorDataset(self.train_x, self.train_y)
-        loader       = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
+        self.train_x  = (X - self.x_mean) / self.x_std
+        self.train_y  = (y - self.y_mean) / self.y_std
+        self.l2_reg   = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau)
+        criterion     = nn.MSELoss()
+        dict_decay    = {'params':[], 'weight_decay': self.l2_reg}
+        dict_no_decay = {'params':[], 'weight_decay': 0.}
+        for name, param in self.nn.named_parameters():
+            if "bias" in name:
+                dict_no_decay['params'].append(param)
+            else:
+                dict_decay['params'].append(param)
+        opt     = torch.optim.Adam([dict_decay, dict_no_decay], lr = self.lr)
+        dataset = TensorDataset(self.train_x, self.train_y)
+        loader  = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         for epoch in range(self.num_epochs):
             for bx, by in loader:
                 opt.zero_grad()
