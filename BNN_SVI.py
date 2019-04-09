@@ -71,7 +71,7 @@ class BNN_SVI(BNN):
         self.rec = []
         for i in range(self.num_iters):
             loss = svi.step(self.X, self.y)
-            if ((i+1) % self.print_every == 0) or i == 0:
+            if (i+1) % self.print_every == 0:
                 self.rec.append(loss / num_train)
                 print("[Iteration %05d/%05d] loss: %-4.3f" % (i + 1, self.num_iters, loss / num_train))
 
