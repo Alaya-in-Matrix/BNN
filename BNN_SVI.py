@@ -1,120 +1,88 @@
-import pyro
-from   pyro.optim import Adam, SGD
+from   pyro.optim          import Adam, SGD
 from   torch.distributions import constraints
-from   util import ScaleLayer
+from   util                import ScaleLayer, NN
+from   BNN                 import BNN
+import os, sys
+import pyro
 import torch
 import torch.nn as nn
 import numpy    as np
 
-class NN(nn.Module):
-    def __init__(self, dim, act, num_hidden, num_layers):
-        super(NN, self).__init__()
-        self.dim        = dim
-        self.act        = act
-        self.num_hidden = num_hidden
-        self.num_layers = num_layers
-        self.nn         = self.mlp()
-        for l in self.nn:
-            if type(l) == nn.Linear:
-                nn.init.kaiming_uniform_(l.weight)
-                nn.init.zeros_(l.bias)
-    def mlp(self):
-        layers  = []
-        pre_dim = self.dim
-        for i in range(self.num_layers):
-            layers.append(nn.Linear(pre_dim, self.num_hidden, bias=True))
-            layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
-            layers.append(self.act)
-            pre_dim = self.num_hidden
-        layers.append(nn.Linear(pre_dim, 1, bias = True))
-        layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
-        return nn.Sequential(*layers)
-    def forward(self, x):
-        return self.nn(x)
-
-class BNN_SVI:
-    def __init__(self, dim, act = nn.Tanh(), conf = dict()):
-        self.dim            = dim
-        self.act            = act
-        self.num_hidden     = conf.get('num_hidden',   50)
-        self.num_layers     = conf.get('num_layers',   3)
-        self.num_iters      = conf.get('num_iters',    400)
-        self.batch_size     = conf.get('batch_size',   128)
-        self.print_every    = conf.get('print_every',  100)
-        self.lr             = conf.get('lr',           1e-3)
-        self.weight_prior   = conf.get('weight_prior', 1.0)
-        self.bias_prior     = conf.get('bias_prior',   1.0)
-        self.noise_level    = conf.get('noise_level',  0.1) # XXX: noise level corresponding to the standardized output
-        self.nn             = NN(dim, self.act, self.num_hidden, self.num_layers).nn
+class BNN_SVI(BNN):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], conf = dict()):
+        super(BNN_SVI, self).__init__()
+        self.dim          = dim
+        self.act          = act
+        self.num_hiddens  = num_hiddens
+        self.num_iters    = conf.get('num_iters',    4000)
+        self.batch_size   = conf.get('batch_size',   128)
+        self.print_every  = conf.get('print_every',  100)
+        self.lr           = conf.get('lr',           1e-2)
+        self.weight_prior = conf.get('weight_prior', 1.0)
+        self.noise_level  = conf.get('noise_level',  0.1)
+        self.normalize    = conf.get('normalize',    True)
+        self.scale_layer  = conf.get('scale_layer',  True)
+        self.nn           = NN(dim, self.act, self.num_hiddens, self.scale_layer)
 
     def model(self, X, y):
         """
         Normal distribution for weights and bias
         """
-        noise_scale = self.noise_level
-        num_x       = X.shape[0]
-        priors      = dict()
+        num_x  = X.shape[0]
+        priors = dict()
         for n, p in self.nn.named_parameters():
-            if "weight" in n:
-                priors[n] = pyro.distributions.Normal(loc = torch.zeros_like(p), scale = self.weight_prior * torch.ones_like(p)).to_event(1)
-            elif "bias" in n:
-                priors[n] = pyro.distributions.Normal(loc = torch.zeros_like(p), scale = self.bias_prior   * torch.ones_like(p)).to_event(1)
+            priors[n] = pyro.distributions.Normal(loc = torch.zeros_like(p), scale = self.weight_prior * torch.ones_like(p)).to_event(1)
 
         lifted_module    = pyro.random_module("module", self.nn, priors)
         lifted_reg_model = lifted_module()
         with pyro.plate("map", len(X), subsample_size = min(num_x, self.batch_size)) as ind:
-            prediction_mean = lifted_reg_model(X[ind]).squeeze(-1)
-            pyro.sample("obs", 
-                    pyro.distributions.Normal(prediction_mean, noise_scale), 
-                    obs = y[ind])
+            pred = lifted_reg_model(X[ind]).squeeze(-1)
+            pyro.sample("obs", pyro.distributions.Normal(pred, self.noise_level), obs = y[ind])
 
     def guide(self, X, y):
         priors   = dict()
         softplus = nn.Softplus()
         for n, p in self.nn.named_parameters():
-            if "weight" in n:
-                loc   = pyro.param("mu_"    + n, self.weight_prior * torch.randn_like(p))
-                scale = pyro.param("sigma_" + n, softplus(torch.randn_like(p)), constraint = constraints.positive)
-                priors[n] = pyro.distributions.Normal(loc = loc, scale = scale).to_event(1)
-            elif "bias" in n:
-                loc       = pyro.param("mu_"    + n, self.bias_prior * torch.randn_like(p))
-                scale     = pyro.param("sigma_" + n, softplus(torch.randn_like(p)), constraint = constraints.positive)
-                priors[n] = pyro.distributions.Normal(loc = loc, scale = scale).to_event(1)
+            loc   = pyro.param("mu_"    + n, self.weight_prior * torch.randn_like(p))
+            scale = pyro.param("sigma_" + n, torch.randn_like(p))
+            priors[n] = pyro.distributions.Normal(loc = loc, scale = softplus(scale)).to_event(1)
         lifted_module = pyro.random_module("module", self.nn, priors)
         return lifted_module()
-            
+
     def train(self, X, y):
         num_train   = X.shape[0]
         y           = y.reshape(num_train)
-        self.x_mean = X.mean(dim = 0)
-        self.x_std  = X.std(dim = 0)
-        self.y_mean = y.mean()
-        self.y_std  = y.std()
-        self.X      = (X - self.x_mean) / self.x_std
-        self.y      = (y - self.y_mean) / self.y_std
-        optim       = pyro.optim.Adam({"lr":self.lr})
-        # optim       = pyro.optim.StepLR({'optimizer': torch.optim.Adam, 'optim_args': {'lr': self.lr}, 'step_size': int(self.num_iters/3), 'gamma': 0.1})
-        svi         = pyro.infer.SVI(self.model, self.guide, optim, loss = pyro.infer.Trace_ELBO(), num_samples = 128)
+        if self.normalize:
+            self.x_mean = X.mean(dim = 0)
+            self.x_std  = X.std(dim = 0)
+            self.y_mean = y.mean()
+            self.y_std  = y.std()
+        else:
+            self.x_mean = torch.tensor(0.)
+            self.x_std  = torch.tensor(1.)
+            self.y_mean = torch.tensor(0.)
+            self.y_std  = torch.tensor(1.)
+        self.X            = (X - self.x_mean) / self.x_std
+        self.y            = (y - self.y_mean) / self.y_std
+        self.noise_level /= self.y_std
+        optim             = pyro.optim.Adam({"lr":self.lr})
+        svi               = pyro.infer.SVI(self.model, self.guide, optim, loss = pyro.infer.Trace_ELBO())
         pyro.clear_param_store()
         self.rec = []
         for i in range(self.num_iters):
             loss = svi.step(self.X, self.y)
-            if i % self.print_every == 0:
+            if ((i+1) % self.print_every == 0) or i == 0:
                 self.rec.append(loss / num_train)
-                print("[Iteration %05d] loss: %.4f" % (i + 1, loss / num_train))
-    
-    def sample(self):
-        net = self.guide(self.X, self.y)
-        return net
+                print("[Iteration %05d/%05d] loss: %-4.3f" % (i + 1, self.num_iters, loss / num_train))
 
-    def validate(self, test_x, test_y, n_samples = 100):
-        num_test  = test_x.shape[0]
-        preds     = torch.zeros(n_samples, num_test)
-        for i in range(n_samples):
-            nn = self.sample()
-            preds[i, :] = nn((test_x - self.x_mean) / self.x_std).squeeze() * self.y_std + self.y_mean
-        rmse = torch.sqrt(torch.mean((test_y - preds.mean(dim = 0))**2))
-        return rmse
+    def sample(self, num_samples = 1):
+        nns = [self.guide(None, None) for i in range(num_samples)]
+        return nns, torch.ones(num_samples) / ((self.y_std * self.noise_level)**2)
 
-    def sample_predict(self, nn, x):
-        return nn((x - self.x_mean) / self.x_std) * self.y_std + self.y_mean
+    def sample_predict(self, nns, X):
+        num_x = X.shape[0]
+        X     = (X - self.x_mean) / self.x_std
+        pred  = torch.zeros(len(nns), num_x)
+        for i in range(len(nns)):
+            pred[i] = self.y_mean + nns[i](X).squeeze() * self.y_std
+        return pred

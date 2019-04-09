@@ -57,7 +57,7 @@ class BNN_Dropout(BNN):
             self.y_std   = 1.
         self.train_x  = (X - self.x_mean) / self.x_std
         self.train_y  = (y - self.y_mean) / self.y_std
-        self.l2_reg   = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau)
+        self.l2_reg   = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau) # XXX: tau should also be normalized!
         criterion     = nn.MSELoss()
         dict_decay    = {'params':[], 'weight_decay': self.l2_reg}
         dict_no_decay = {'params':[], 'weight_decay': 0.}
