@@ -11,8 +11,9 @@ Implemented:
 
 ## Reproduce reguression results of MC-dropout on UCI datasets
 
-- `keras-RMSE` and `keras-NLL`: Yarin Gal's [keras implementation](https://github.com/yaringal/DropoutUncertaintyExps)
-- Dropout rate is fixed to 0.05 for both original keras implementation and my pytorch implementation, see `paper_reproduce/MC_dropout.ipynb` for details
+- `keras-RMSE` and `keras-NLL`: Yarin Gal's original [keras implementation](https://github.com/yaringal/DropoutUncertaintyExps)
+- Dropout rate fixed to 0.05, tau selected from `test_tau_100_xepochs_1_hidden_layers.txt`
+- See `paper_reproduce/MC_dropout.ipynb` for details, 
 - Standard deviation instead of standard error is calculated
 
 Algorithm                  | keras-RMSE  | torch-RMSE  | keras-NLL    | torch-NLL
