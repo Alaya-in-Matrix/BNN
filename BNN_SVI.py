@@ -63,10 +63,11 @@ class BNN_SVI(BNN):
             if (i+1) % self.print_every == 0:
                 self.rec.append(loss / num_train)
                 print("[Iteration %05d/%05d] loss: %-4.3f" % (i + 1, self.num_iters, loss / num_train))
+        self.noise_level *= self.y_std
 
     def sample(self, num_samples = 1):
         nns = [self.guide(None, None) for i in range(num_samples)]
-        return nns, torch.ones(num_samples) / ((self.y_std * self.noise_level)**2)
+        return nns, torch.ones(num_samples) / (self.noise_level**2)
 
     def sample_predict(self, nns, X):
         num_x = X.shape[0]
