@@ -9,16 +9,19 @@ Implemented:
 - SVI(from pyro) 
 - BBB
 
-## Reproduce reguression results of MC-dropout on UCI datasets
+## Reguression results on UCI datasets
 
-- `keras-RMSE` and `keras-NLL`: Yarin Gal's original [keras implementation or MC-dropout](https://github.com/yaringal/DropoutUncertaintyExps)
-- Dropout rate fixed to 0.05, tau selected from `test_tau_100_xepochs_1_hidden_layers.txt`
-- See `paper_reproduce/MC_dropout.ipynb` for details, 
 - Standard deviation instead of standard error is calculated
+- Dropout models:
+    - `keras-RMSE` and `keras-NLL`: Yarin Gal's original [keras implementation of MC-dropout](https://github.com/yaringal/DropoutUncertaintyExps)
+    - Dropout rate fixed to 0.05, tau selected from `test_tau_100_xepochs_1_hidden_layers.txt`
+    - 100x epochs (4000 epochs for all datasets except for the protein dataset, 2000 epochs for protein dataset)
+    - See `paper_reproduce/MC_dropout.ipynb` for details, 
+    - The [Reported results](https://github.com/yaringal/DropoutUncertaintyExps/blob/master/readme.md) are much better, as the hyper-parameters are very carefully tuned (different dropout rates for different datasets and train/test splitting)
 - BBB: Bayes-by-Backprop
-    - See `paper_reproduce/BBB.py` for details
     - Batch size set to 32
-    - 10x epochs (instead of 100x epochs for dropout models)
+    - 10x epochs instead of 100x epochs
+    - See `paper_reproduce/BBB.py` for details
 
 Algorithm                  | keras-RMSE  | Dropout-RMSE | BBB-RMSE
 ---------------------------|-------------|--------------|-------------
