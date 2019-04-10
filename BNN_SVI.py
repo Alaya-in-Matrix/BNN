@@ -50,20 +50,9 @@ class BNN_SVI(BNN):
         return lifted_module()
 
     def train(self, X, y):
-        num_train   = X.shape[0]
-        y           = y.reshape(num_train)
-        if self.normalize:
-            self.x_mean = X.mean(dim = 0)
-            self.x_std  = X.std(dim = 0)
-            self.y_mean = y.mean()
-            self.y_std  = y.std()
-        else:
-            self.x_mean = torch.tensor(0.)
-            self.x_std  = torch.tensor(1.)
-            self.y_mean = torch.tensor(0.)
-            self.y_std  = torch.tensor(1.)
-        self.X            = (X - self.x_mean) / self.x_std
-        self.y            = (y - self.y_mean) / self.y_std
+        num_train         = X.shape[0]
+        y                 = y.reshape(num_train)
+        self.normalize_Xy(X, y, self.normalize)
         self.noise_level /= self.y_std
         optim             = pyro.optim.Adam({"lr":self.lr})
         svi               = pyro.infer.SVI(self.model, self.guide, optim, loss = pyro.infer.Trace_ELBO())
