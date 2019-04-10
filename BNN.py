@@ -25,7 +25,7 @@ class BNN(ABC):
         self.y = (y - self.y_mean) / self.y_std
 
     @abstractmethod
-    def train(X, y):
+    def train(self, X, y):
         """
         X: num_train * dim matrix
         y: num_train vector
@@ -33,7 +33,7 @@ class BNN(ABC):
         pass
 
     @abstractmethod
-    def sample(num_samples = 1):
+    def sample(self, num_samples = 1):
         """
         Generate `num_sample` samples from the posterior, return a list of neural networks and posterior precisions
         """
