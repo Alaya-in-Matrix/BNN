@@ -37,10 +37,15 @@ class GaussianLinear(nn.Module):
     def extra_repr(self):
         return 'in_features={}, out_features={}'.format(self.in_features, self.out_features)
 
-class BayesianNN(NN):
+class BayesianNN(nn.Module):
     def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], scale = True):
-        super(BayesianNN, self).__init__(dim, act, num_hiddens, scale)
-        self.nn = self.mlp()
+        super(BayesianNN, self).__init__()
+        self.dim         = dim
+        self.act         = act
+        self.num_hiddens = num_hiddens
+        self.num_layers  = len(num_hiddens)
+        self.scale       = scale
+        self.nn          = self.mlp()
 
     def sample(self):
         layers = []
@@ -50,6 +55,9 @@ class BayesianNN(NN):
             else:
                 layers.append(layer)
         return nn.Sequential(*layers)
+
+    def forward(self, input):
+        return self.nn(input)
 
     def mlp(self):
         layers  = []
