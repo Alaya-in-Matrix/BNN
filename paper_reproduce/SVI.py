@@ -54,7 +54,8 @@ def uci(dataset, split_id):
        return np.nan, np.nan, np.nan, np.nan
    print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
    conf = dict()
-   conf['num_iters']   = 100*n_epochs * (1+int(train_x.shape[0] / 128))
+   conf['batch_size']  = 32
+   conf['num_iters']   = 10*n_epochs * (1+int(train_x.shape[0] / 32))
    conf['noise_level'] = 1/np.sqrt(tau)
    conf['print_every'] = np.inf
    model = BNN_SVI(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
