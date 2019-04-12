@@ -1,15 +1,21 @@
-from   torch.distributions import constraints
 from   torch.nn.parameter  import Parameter
 from   torch.utils.data    import TensorDataset, DataLoader
-from   util                import ScaleLayer, NN
+from   util                import ScaleLayer
 from   BNN                 import BNN
 from   BNN_BBB             import MixturePrior
-from   torch.distributions.relaxed_bernoulli import RelaxedBernoulli
+from   torch.distributions.relaxed_bernoulli        import RelaxedBernoulli
+from   torch.distributions.utils                    import clamp_probs, logits_to_probs, probs_to_logits
+from   torch.distributions.transformed_distribution import TransformedDistribution
+from   torch.distributions.transforms               import AffineTransform
 import numpy               as np
 import torch
 import torch.nn            as nn
 import torch.nn.functional as F
 import sys, os
+
+class StableRelaxedBernoulli(RelaxedBernoulli):
+    def rsample(self, sample_shape = torch.Size()):
+        return clamp_probs(super(StableRelaxedBernoulli, self).rsample(sample_shape))
 
 class RelaxedDropoutLinear(nn.Module):
     def __init__(self, in_features, out_features, temperature = torch.tensor(1.0), dropout_rate = torch.tensor(0.5)):
@@ -24,26 +30,22 @@ class RelaxedDropoutLinear(nn.Module):
         nn.init.zeros_(self.bias)
     
     def forward(self, input):
-        self.dist        = RelaxedBernoulli(temperature = self.temperature, probs = 1 - torch.sigmoid(self.dropout_logit))
-        self.mask        = self.dist.rsample((self.in_features, )).clamp(min = 1e-7, max = 1-1e-7)
-        self.log_prob    = torch.sum(self.dist.log_prob(self.mask) - self.weight.abs().log())
-        self.mask_weight = self.weight * self.mask
-        if torch.isnan(self.log_prob):
-            print(self.dist.probs)
-            print(self.mask)
-            print(self.dist.log_prob(self.mask))
-            sys.exit(1)
+        probs            = 1 - torch.sigmoid(self.dropout_logit) * torch.ones(self.in_features)
+        base_dist        = StableRelaxedBernoulli(temperature = self.temperature, probs = probs)
+        self.dist        = TransformedDistribution(base_dist, AffineTransform(loc = torch.zeros(1), scale = self.weight))
+        self.mask_weight = self.dist.rsample()
+        self.log_prob    = self.dist.log_prob(self.mask_weight).sum()
         return F.linear(input, weight = self.mask_weight, bias = self.bias)
     
     def extra_repr(self):
         return 'in_features = %d, out_features = %d, temperature = %4.2f, dropout_rate = %4.2f' % (self.in_features, self.out_features, self.temperature, torch.sigmoid(self.dropout_logit))
 
     def sample_linear(self):
-        self.dist         = RelaxedBernoulli(temperature = self.temperature, probs = 1 - torch.sigmoid(self.dropout_logit))
-        self.mask         = self.dist.sample((self.in_features, ))
-        mask_weight       = self.weight * self.mask
+        probs             = 1 - torch.sigmoid(self.dropout_logit) * torch.ones(self.in_features)
+        base_dist         = StableRelaxedBernoulli(temperature = self.temperature, probs = probs)
+        self.dist         = TransformedDistribution(base_dist, AffineTransform(loc = torch.zeros(1), scale = self.weight))
         layer             = nn.Linear(self.in_features, self.out_features, bias = True)
-        layer.weight.data = mask_weight.data.clone()
+        layer.weight.data = self.dist.sample().data.clone()
         layer.bias.data   = self.bias.data.clone()
         return layer
 
@@ -87,9 +89,13 @@ class BayesianNN(nn.Module):
         return nn.Sequential(*layers)
 
 
-class BNN_CDropout(BNN):
+class BNN_CDropout_BBB(BNN):
     def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], conf = dict()):
-        super(BNN_CDropout, self).__init__()
+        """
+        Concrete dropout
+        Instead of performing concrete dropout, BNN_CDropout_BBB directly perform variational inference using Bayes-by-backprop
+        """
+        super(BNN_CDropout_BBB, self).__init__()
         self.dim         = dim
         self.act         = act
         self.num_hiddens = num_hiddens
@@ -98,9 +104,9 @@ class BNN_CDropout(BNN):
         self.print_every = conf.get('print_every',  50)
         self.n_samples   = conf.get('n_samples',    1)
         self.lr          = conf.get('lr',           1e-2)
-        self.pi          = conf.get('pi',           0.75)
-        self.s1          = conf.get('s1',           5.)
-        self.s2          = conf.get('s2',           0.2)
+        self.pi          = conf.get('pi',           1.)
+        self.s1          = conf.get('s1',           1.)
+        self.s2          = conf.get('s2',           1.)
         self.noise_level = conf.get('noise_level',  0.1)
         self.temperature = conf.get('temperature',  0.1)
         self.normalize   = conf.get('normalize',    True)
@@ -135,6 +141,7 @@ class BNN_CDropout(BNN):
         dataset   = TensorDataset(self.X, self.y)
         loader    = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         opt       = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
+        # opt       = torch.optim.SGD(self.nn.parameters(), lr = self.lr, momentum = 0.1)
         num_batch = len(loader)
         for epoch in range(self.num_epochs):
             batch_cnt = 1
