@@ -17,7 +17,7 @@ class BNN(ABC):
             if self.y_std == 0:
                 self.y_std = torch.tensor(1.)
         else:
-            self.x_mean = torch.ones(X.shape[1])
+            self.x_mean = torch.zeros(X.shape[1])
             self.x_std  = torch.ones(X.shape[1])
             self.y_mean = torch.tensor(0.)
             self.y_std  = torch.tensor(1.)

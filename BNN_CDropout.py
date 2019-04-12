@@ -3,7 +3,7 @@ from   torch.nn.parameter  import Parameter
 from   torch.utils.data    import TensorDataset, DataLoader
 from   util                import ScaleLayer, NN
 from   BNN                 import BNN
-from   BNN_BBB             import BNN_BBB
+from   BNN_BBB             import MixturePrior
 from   torch.distributions.relaxed_bernoulli import RelaxedBernoulli
 import numpy               as np
 import torch
@@ -11,46 +11,62 @@ import torch.nn            as nn
 import torch.nn.functional as F
 import sys, os
 
-class RelaxedBernoulliLinear(nn.Module):
-    def __init__(self, in_features, out_features, prob = torch.tensor(0.5), temp = torch.tensor(0.1)):
-        """
-        in_features: integer, dimension of input
-        out_features: integer, dimension of output
-        prob: scalar tensor, bernoulli probability
-        temp: scalar tensor, temperature of the RelaxedBernoulli distribution
-        """
-        super(RelaxedBernoulliLinear, self).__init__()
-        self.in_features  = in_features
-        self.out_features = out_features
-        self.t            = temp
-        self.p            = Parameter(prob)
-        self.linear       = nn.Linear(in_features, out_features, bias = True)
-        self.dist         = RelaxedBernoulli(temperature = self.t, probs = self.p)
-
+class RelaxedDropoutLinear(nn.Module):
+    def __init__(self, in_features, out_features, temperature = torch.tensor(1.0), dropout_rate = torch.tensor(0.5)):
+        super(RelaxedDropoutLinear, self).__init__()
+        self.dropout_logit = nn.Parameter(torch.as_tensor(dropout_rate / (1 - dropout_rate)).log())
+        self.weight        = nn.Parameter(torch.randn(out_features, in_features))
+        self.bias          = nn.Parameter(torch.randn(out_features))
+        self.temperature   = torch.as_tensor(temperature) # XXX: should temp also regarded as variational parameter?
+        self.in_features   = in_features
+        self.out_features  = out_features
+        nn.init.xavier_uniform_(self.weight)
+        nn.init.zeros_(self.bias)
+    
     def forward(self, input):
-        input *= self.dist.sample((self.in_features, ))
-        return self.linear(input * self.dist.sample((self.in_features, )))
+        self.dist        = RelaxedBernoulli(temperature = self.temperature, probs = 1 - torch.sigmoid(self.dropout_logit))
+        self.mask        = self.dist.rsample((self.in_features, )).clamp(min = 1e-7, max = 1-1e-7)
+        self.log_prob    = torch.sum(self.dist.log_prob(self.mask) - self.weight.abs().log())
+        self.mask_weight = self.weight * self.mask
+        if torch.isnan(self.log_prob):
+            print(self.dist.probs)
+            print(self.mask)
+            print(self.dist.log_prob(self.mask))
+            sys.exit(1)
+        return F.linear(input, weight = self.mask_weight, bias = self.bias)
+    
+    def extra_repr(self):
+        return 'in_features = %d, out_features = %d, temperature = %4.2f, dropout_rate = %4.2f' % (self.in_features, self.out_features, self.temperature, torch.sigmoid(self.dropout_logit))
 
     def sample_linear(self):
+        self.dist         = RelaxedBernoulli(temperature = self.temperature, probs = 1 - torch.sigmoid(self.dropout_logit))
+        self.mask         = self.dist.sample((self.in_features, ))
+        mask_weight       = self.weight * self.mask
         layer             = nn.Linear(self.in_features, self.out_features, bias = True)
-        layer.weight.data = self.linear.weight.data.clone() * self.dist.sample((self.in_features, ))
-        layer.bias.data   = self.linear.bias.data.clone()
+        layer.weight.data = mask_weight.data.clone()
+        layer.bias.data   = self.bias.data.clone()
         return layer
-
-    def extra_repr(self):
-        return 'in_features=%d, out_features=%d, temp = %4.2f, dropout_rate = %4.2f' % (self.in_features, self.out_features, self.t, self.p)
 
 
 class BayesianNN(nn.Module):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], scale = True, probs = torch.tensor([0.5, 0.5]), temp = torch.tensor(0.1)):
-        self.probs = probs
-        self.temp  = temp
-        self.nn    = self.mlp()
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], scale = False, dropout_rate = 0.5, temp = 0.1):
+        super(BayesianNN, self).__init__()
+        self.dim          = dim
+        self.act          = act
+        self.num_hiddens  = num_hiddens
+        self.num_layers   = len(num_hiddens)
+        self.scale        = scale
+        self.dropout_rate = dropout_rate
+        self.temp         = temp
+        self.nn           = self.mlp()
+
+    def forward(self, input):
+        return self.nn(input)
 
     def sample(self):
         layers = []
         for layer in self.nn:
-            if isinstance(layer, RelaxedBernoulliLinear):
+            if isinstance(layer, RelaxedDropoutLinear):
                 layers.append(layer.sample_linear())
             else:
                 layers.append(layer)
@@ -58,14 +74,95 @@ class BayesianNN(nn.Module):
 
     def mlp(self):
         layers  = []
-        # pre_dim = self.dim
-        # for i in range(self.num_layers):
-        #     layers.append(RelaxedBernoulliLinear(pre_dim, self.num_hiddens[i], prob = self.probs[i], temp = self.temp))
-        #     if self.scale:
-        #         layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
-        #     layers.append(self.act)
-        #     pre_dim = self.num_hiddens[i]
-        # layers.append(RelaxedBernoulliLinear(pre_dim, 1, prob = self.probs[-1], temp = self.temp))
-        # if self.scale:
-        #     layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
+        pre_dim = self.dim
+        for i in range(self.num_layers):
+            layers.append(RelaxedDropoutLinear(pre_dim, self.num_hiddens[i], temperature = self.temp, dropout_rate = self.dropout_rate))
+            if self.scale:
+                layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
+            layers.append(self.act)
+            pre_dim = self.num_hiddens[i]
+        layers.append(RelaxedDropoutLinear(pre_dim, 1, temperature = self.temp, dropout_rate = self.dropout_rate))
+        if self.scale:
+            layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
         return nn.Sequential(*layers)
+
+
+class BNN_CDropout(BNN):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], conf = dict()):
+        super(BNN_CDropout, self).__init__()
+        self.dim         = dim
+        self.act         = act
+        self.num_hiddens = num_hiddens
+        self.num_epochs  = conf.get('num_epochs',   400)
+        self.batch_size  = conf.get('batch_size',   32)
+        self.print_every = conf.get('print_every',  50)
+        self.n_samples   = conf.get('n_samples',    1)
+        self.lr          = conf.get('lr',           1e-2)
+        self.pi          = conf.get('pi',           0.75)
+        self.s1          = conf.get('s1',           5.)
+        self.s2          = conf.get('s2',           0.2)
+        self.noise_level = conf.get('noise_level',  0.1)
+        self.temperature = conf.get('temperature',  0.1)
+        self.normalize   = conf.get('normalize',    True)
+        self.scale_layer = conf.get('scale_layer',  False)
+        self.w_prior     = MixturePrior(factor = self.pi, s1 = self.s1, s2 = self.s2)
+        self.nn          = BayesianNN(dim, self.act, self.num_hiddens, self.scale_layer, temp = self.temperature)
+    
+    def loss(self, X, y):
+        num_x   = X.shape[0]
+        X       = X.reshape(num_x, self.dim)
+        y       = y.reshape(num_x)
+        log_lik = torch.tensor(0.)
+        log_qw  = torch.tensor(0.)
+        log_pw  = torch.tensor(0.)
+        for i in range(self.n_samples):
+            pred     = self.nn(X).reshape(num_x).reshape(y.shape)
+            log_lik += torch.distributions.Normal(pred, self.noise_level).log_prob(y).sum()
+            for layer in self.nn.nn:
+                if isinstance(layer, RelaxedDropoutLinear):
+                    log_qw += layer.log_prob
+                    log_pw += self.w_prior.log_prob(layer.mask_weight).sum()
+                    log_pw += self.w_prior.log_prob(layer.bias).sum()
+            kl_term = log_qw - log_pw
+        return log_lik / self.n_samples, kl_term / self.n_samples
+
+    def train(self, X, y):
+        num_x = X.shape[0]
+        X     = X.reshape(num_x, self.dim)
+        y     = y.reshape(num_x)
+        self.normalize_Xy(X, y, self.normalize)
+        self.noise_level /= self.y_std
+        dataset   = TensorDataset(self.X, self.y)
+        loader    = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
+        opt       = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
+        num_batch = len(loader)
+        for epoch in range(self.num_epochs):
+            batch_cnt = 1
+            for bx, by in loader:
+                opt.zero_grad()
+                log_lik             = torch.tensor(0.)
+                kl_term             = torch.tensor(0.)
+                _log_lik, _kl_term  = self.loss(bx, by)
+                log_lik            += _log_lik
+                kl_term            += _kl_term
+                pi                  = 2**(num_batch - batch_cnt) / (2**(num_batch) - 1)
+                loss                = (pi * kl_term - log_lik)
+                loss.backward(retain_graph=True)
+                opt.step()
+                batch_cnt += 1
+            if ((epoch + 1) % self.print_every == 0):
+                log_lik, kl_term = self.loss(self.X, self.y)
+                print("[Epoch %5d, loss = %.4g (KL = %.4g, -log_lik = %.4g)]" % (epoch + 1, kl_term - log_lik, kl_term, -1 * log_lik), flush = True)
+        self.noise_level *= self.y_std
+
+    def sample(self, num_samples = 1):
+        nns = [self.nn.sample() for i in range(num_samples)]
+        return nns, torch.ones(num_samples) / (self.noise_level**2)
+
+    def sample_predict(self, nns, X):
+        num_x = X.shape[0]
+        X     = (X - self.x_mean) / self.x_std
+        pred  = torch.zeros(len(nns), num_x)
+        for i in range(len(nns)):
+            pred[i] = self.y_mean + nns[i](X).squeeze() * self.y_std
+        return pred
