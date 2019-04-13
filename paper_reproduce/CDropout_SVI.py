@@ -54,26 +54,28 @@ def uci(dataset, split_id):
        return np.nan, np.nan, np.nan, np.nan
    print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
    conf = dict()
-   conf['num_epochs']  = 10*n_epochs # XXX: 10x, not 100x
-   conf['batch_size']  = 32          # XXX: 32, not 128
+   conf['num_epochs']  = 100*n_epochs # XXX: 10x, not 100x
+   conf['batch_size']  = 128          # XXX: 32, not 128
    conf['noise_level'] = 1/np.sqrt(tau)
    conf['print_every'] = 100
+   conf['lr']          = 3e-3
    model = BNN_CDropout_SVI(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
+   model.report()
    rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=1000)
    print('RMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, nll_gaussian, nll))
    return rmse, nll_gaussian, nll
 
 ds = [
-  'bostonHousing'
- , 'concrete'
- , 'energy'
- , 'kin8nm'
- , 'naval-propulsion-plant'
- , 'power-plant'
- , 'protein-tertiary-structure'
- , 'wine-quality-red'
- , 'yacht'
+  # 'bostonHousing'
+  'concrete'
+ # , 'energy'
+ # , 'kin8nm'
+ # , 'naval-propulsion-plant'
+ # , 'power-plant'
+ # , 'protein-tertiary-structure'
+ # , 'wine-quality-red'
+ # , 'yacht'
 ]
 
 stat = dict()
@@ -82,7 +84,7 @@ for d in ds:
     def f(split_id):
         return uci(d, split_id)
     with Pool(num_thread) as p:
-        stat[d] = p.map(f, list(range(2)))
+        stat[d] = p.map(f, list(range(20)))
     f = open("./results/stat_CDropout_SVI.pkl","wb")
     pickle.dump(stat,f)
     f.close()
