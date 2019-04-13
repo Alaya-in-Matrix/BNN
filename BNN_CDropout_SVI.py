@@ -33,19 +33,22 @@ class BNN_CDropout_SVI(BNN):
         self.num_epochs   = conf.get('num_epochs',   400)
         self.batch_size   = conf.get('batch_size',   32)
         self.print_every  = conf.get('print_every',  50)
-        self.lr           = conf.get('lr',           1e-2)
-        self.weight_prior = conf.get('weight_prior', 1.)
-        self.noise_level  = conf.get('noise_level',  0.1)
-        self.temperature  = conf.get('temperature',  0.1)
-        self.dropout_rate = conf.get('dropout_rate', 0.5)
         self.normalize    = conf.get('normalize',    True)
+        self.lr           = torch.as_tensor(conf.get('lr',           1e-2))
+        self.weight_prior = torch.as_tensor(conf.get('weight_prior', 1.))
+        self.temperature  = torch.as_tensor(conf.get('temperature',  0.1))
+        self.dropout_rate = torch.as_tensor(conf.get('dropout_rate', 0.5))
+        self.alpha        = torch.as_tensor(conf.get('alpha', 6.)) # XXX: precison corespond to (possibly) normalized data, be careful
+        self.beta         = torch.as_tensor(conf.get('beta',  6.))
 
     def model(self, X, y):
-        num_x      = X.shape[0]
-        y          = y.reshape(num_x)
-        wp         = self.weight_prior
-        para       = dict()
-        in_feature = self.dim
+        num_x       = X.shape[0]
+        y           = y.reshape(num_x)
+        wp          = self.weight_prior
+        para        = dict()
+        in_feature  = self.dim
+        precision   = pyro.sample("precision", pyro.distributions.Gamma(self.alpha, self.beta))
+        noise_level = 1 / precision.sqrt()
         for i in range(len(self.num_hiddens)):
             para['w{}'.format(i)] = pyro.sample("w{}".format(i), pyro.distributions.Normal(torch.tensor(0.), wp * torch.ones(self.num_hiddens[i], in_feature)))
             para['b{}'.format(i)] = pyro.sample("b{}".format(i), pyro.distributions.Normal(torch.tensor(0.), wp * torch.ones(self.num_hiddens[i])))
@@ -53,14 +56,15 @@ class BNN_CDropout_SVI(BNN):
         para['wout'] = pyro.sample("wout", pyro.distributions.Normal(torch.tensor(0.), wp * torch.ones(1, in_feature)))
         para['bout'] = pyro.sample("bout", pyro.distributions.Normal(torch.tensor(0.), wp * torch.ones(1)))
         with pyro.plate("map", len(X), subsample_size = min(num_x, self.batch_size)) as ind:
-            out        = X[ind]
-            in_feature = self.dim
+            out         = X[ind]
+            in_feature  = self.dim
+            noise_level = 1 / precision.sqrt()
             for i in range(len(self.num_hiddens)):
                 out = F.linear(input = out, weight = para['w{}'.format(i)], bias = para['b{}'.format(i)])
                 out = self.act(out)
                 in_feature = self.num_hiddens[i]
             out = F.linear(input = out, weight = para['wout'], bias = para['bout']).squeeze()
-            pyro.sample("obs", pyro.distributions.Normal(out, self.noise_level), obs = y[ind])
+            pyro.sample("obs", pyro.distributions.Normal(out, noise_level), obs = y[ind])
 
     def xavier(self, sample_shape = torch.Size()):
         weight = torch.zeros(sample_shape)
@@ -69,6 +73,9 @@ class BNN_CDropout_SVI(BNN):
 
     def guide(self, X, y):
         in_feature = self.dim
+        alpha      = pyro.param("alpha", self.alpha)
+        beta       = pyro.param("beta",  self.beta)
+        precision  = pyro.sample("precision", pyro.distributions.Gamma(alpha, beta))
         for i in range(len(self.num_hiddens)):
             p_logit = pyro.param("p_logit_{}".format(i),      probs_to_logits(torch.as_tensor(self.dropout_rate), is_binary = True))
             temp    = pyro.param("temp_{}".format(i),         torch.as_tensor(self.temperature))
@@ -95,7 +102,6 @@ class BNN_CDropout_SVI(BNN):
         num_train         = X.shape[0]
         y                 = y.reshape(num_train)
         self.normalize_Xy(X, y, self.normalize)
-        self.noise_level /= self.y_std
         optim             = pyro.optim.Adam({"lr":self.lr})
         svi               = pyro.infer.SVI(self.model, self.guide, optim, loss = pyro.infer.Trace_ELBO())
         pyro.clear_param_store()
@@ -103,10 +109,9 @@ class BNN_CDropout_SVI(BNN):
         num_iters = self.num_epochs * (1 + int(num_train / self.batch_size))
         for i in range(num_iters):
             loss = svi.step(self.X, self.y)
-            if (i+1) % self.print_every == 0:
+            if (i+1) % self.print_every == 0 or i == 0:
                 self.rec.append(loss / num_train)
-                print("[Iteration %05d/%05d] loss: %-4.3f" % (i + 1, num_iters, loss / num_train))
-        self.noise_level *= self.y_std
+                print("[Iteration %05d/%05d] loss: %-4.3f, precision = %4.3f" % (i + 1, num_iters, loss / num_train, self.sample_prec()))
     
     def sample_one(self):
         layers = []
@@ -149,10 +154,14 @@ class BNN_CDropout_SVI(BNN):
         p_logit = pyro.param("p_logit_out")
         temp    = pyro.param("temp_out")
         print("Out Layer, dropout_rate = %3.2f, temp = %4.3f" % (torch.sigmoid(p_logit), temp))
+
+    def sample_prec(self):
+        return pyro.distributions.Gamma(pyro.param("alpha"), pyro.param("beta")).sample() / self.y_std**2
     
     def sample(self, num_samples = 1):
-        nns = [self.sample_one() for i in range(num_samples)]
-        return nns, torch.ones(num_samples) / (self.noise_level**2)
+        nns   = [self.sample_one()  for i in range(num_samples)]
+        precs = torch.tensor([self.sample_prec() for i in range(num_samples)])
+        return nns, precs
 
     def sample_predict(self, nns, X):
         num_x = X.shape[0]
