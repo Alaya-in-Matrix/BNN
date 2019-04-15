@@ -34,12 +34,13 @@ class BNN_CDropout_SVI(BNN):
         self.batch_size   = conf.get('batch_size',   32)
         self.print_every  = conf.get('print_every',  50)
         self.normalize    = conf.get('normalize',    True)
-        self.lr           = torch.as_tensor(conf.get('lr',           1e-2))
-        self.weight_prior = torch.as_tensor(conf.get('weight_prior', 1.))
-        self.temperature  = torch.as_tensor(conf.get('temperature',  0.1))
-        self.dropout_rate = torch.as_tensor(conf.get('dropout_rate', 0.5))
-        self.alpha        = torch.as_tensor(conf.get('alpha', 6.)) # XXX: precison corespond to (possibly) normalized data, be careful
-        self.beta         = torch.as_tensor(conf.get('beta',  6.))
+        self.lr           = conf.get('lr',           1e-2)
+        self.weight_prior = conf.get('weight_prior', 1.)
+        self.temperature  = conf.get('temperature',  0.1)
+        self.dropout_rate = conf.get('dropout_rate', 0.5)
+        self.alpha        = conf.get('alpha', 0.1) # XXX: precison corespond to (possibly) normalized data, be careful
+        self.beta         = conf.get('beta',  0.01)
+        self.init_prec    = conf.get('init_prec', self.alpha / self.beta)
 
     def model(self, X, y):
         num_x       = X.shape[0]
@@ -72,29 +73,26 @@ class BNN_CDropout_SVI(BNN):
         return weight
 
     def guide(self, X, y):
-        in_feature = self.dim
-        alpha      = pyro.param("alpha", self.alpha)
-        beta       = pyro.param("beta",  self.beta)
-        precision  = pyro.sample("precision", pyro.distributions.Gamma(alpha, beta))
+        in_feature     = self.dim
+        precision_para = pyro.param("precision_para", torch.tensor(self.init_prec)) # XXX: SNR = 10, if y is normalized
+        precision      = pyro.sample("precision", pyro.distributions.Delta(v = precision_para))
         for i in range(len(self.num_hiddens)):
             p_logit = pyro.param("p_logit_{}".format(i),      probs_to_logits(torch.as_tensor(self.dropout_rate), is_binary = True))
-            temp    = pyro.param("temp_{}".format(i),         torch.as_tensor(self.temperature))
             bias    = pyro.param("bias_param_{}".format(i),   torch.zeros(self.num_hiddens[i]))
             weight  = pyro.param("weight_param_{}".format(i), self.xavier((self.num_hiddens[i], in_feature)))
 
             probs = 1. - torch.sigmoid(p_logit) * torch.ones(in_feature)
-            mask  = pyro.sample("mask{}".format(i), StableRelaxedBernoulli(temperature = F.softplus(temp), probs = probs))
+            mask  = pyro.sample("mask{}".format(i), StableRelaxedBernoulli(temperature = torch.tensor(self.temperature), probs = probs))
             pyro.sample("w{}".format(i), pyro.distributions.Delta(v = weight * mask))
             pyro.sample("b{}".format(i), pyro.distributions.Delta(v = bias))
             in_feature = self.num_hiddens[i]
 
         p_logit = pyro.param("p_logit_out",      probs_to_logits(torch.as_tensor(self.dropout_rate), is_binary = True))
-        temp    = pyro.param("temp_out",         torch.as_tensor(self.temperature))
         bias    = pyro.param("bias_param_out",   torch.zeros(1))
         weight  = pyro.param("weight_param_out", self.xavier((1, in_feature)))
 
         probs = 1. - torch.sigmoid(p_logit) * torch.ones(in_feature)
-        mask  = pyro.sample("mask_out", StableRelaxedBernoulli(temperature = F.softplus(temp), probs = probs))
+        mask  = pyro.sample("mask_out", StableRelaxedBernoulli(temperature = torch.tensor(self.temperature), probs = probs))
         pyro.sample("wout", pyro.distributions.Delta(v = weight * mask))
         pyro.sample("bout", pyro.distributions.Delta(v = bias))
 
@@ -111,18 +109,17 @@ class BNN_CDropout_SVI(BNN):
             loss = svi.step(self.X, self.y)
             if (i+1) % self.print_every == 0 or i == 0:
                 self.rec.append(loss / num_train)
-                print("[Iteration %05d/%05d] loss: %-4.3f, precision = %4.3f" % (i + 1, num_iters, loss / num_train, self.sample_prec()))
+                print("[Iteration %05d/%05d] loss: %-4.3f, precision = %4.3f" % (i + 1, num_iters, loss / num_train, self.sample_prec()), flush = True)
     
     def sample_one(self):
         layers = []
         in_feature = self.dim
         for i in range(len(self.num_hiddens)):
             p_logit           = pyro.param("p_logit_{}".format(i))
-            temp              = pyro.param("temp_{}".format(i))
             bias              = pyro.param("bias_param_{}".format(i))
             weight            = pyro.param("weight_param_{}".format(i))
             probs             = 1. - torch.sigmoid(p_logit) * torch.ones(in_feature)
-            mask              = pyro.sample("mask{}".format(i), StableRelaxedBernoulli(temperature = F.softplus(temp), probs = probs))
+            mask              = pyro.sample("mask{}".format(i), StableRelaxedBernoulli(temperature = torch.tensor(self.temperature), probs = probs))
             weight            = pyro.distributions.Delta(v = weight * mask).sample()
             bias              = pyro.distributions.Delta(v = bias).sample()
             layer             = nn.Linear(in_feature, self.num_hiddens[i])
@@ -133,11 +130,10 @@ class BNN_CDropout_SVI(BNN):
             layers.append(self.act)
 
         p_logit           = pyro.param("p_logit_out")
-        temp              = pyro.param("temp_out")
         bias              = pyro.param("bias_param_out")
         weight            = pyro.param("weight_param_out")
         probs             = 1. - torch.sigmoid(p_logit) * torch.ones(in_feature)
-        mask              = pyro.sample("mask_out", StableRelaxedBernoulli(temperature = F.softplus(temp), probs = probs))
+        mask              = pyro.sample("mask_out", StableRelaxedBernoulli(temperature = torch.tensor(self.temperature), probs = probs))
         wout              = pyro.distributions.Delta(v = weight * mask).sample()
         bout              = pyro.distributions.Delta(v = bias).sample()
         layer             = nn.Linear(in_feature, 1)
@@ -149,14 +145,13 @@ class BNN_CDropout_SVI(BNN):
     def report(self):
         for i in range(len(self.num_hiddens)):
             p_logit = pyro.param("p_logit_{}".format(i))
-            temp    = pyro.param("temp_{}".format(i))
-            print("Layer %2d, dropout_rate = %3.2f, temp = %4.3f" % (i, torch.sigmoid(p_logit), temp))
+            print("Layer %2d, dropout_rate = %3.2f, temp = %4.3f" % (i, torch.sigmoid(p_logit), self.temperature))
         p_logit = pyro.param("p_logit_out")
-        temp    = pyro.param("temp_out")
-        print("Out Layer, dropout_rate = %3.2f, temp = %4.3f" % (torch.sigmoid(p_logit), temp))
+        print("Out Layer, dropout_rate = %3.2f, temp = %4.3f" % (torch.sigmoid(p_logit), self.temperature))
+        print("Model precision: %4.3f" % self.sample_prec())
 
     def sample_prec(self):
-        return pyro.distributions.Gamma(pyro.param("alpha"), pyro.param("beta")).sample() / self.y_std**2
+        return pyro.param("precision_para").item() / self.y_std**2
     
     def sample(self, num_samples = 1):
         nns   = [self.sample_one()  for i in range(num_samples)]
