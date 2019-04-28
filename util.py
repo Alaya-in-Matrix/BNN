@@ -28,3 +28,6 @@ class NN(nn.Module):
     def forward(self, x):
         out = self.nn(x)
         return out
+
+def stable_noise_var(log_noise_var):
+    return 1e-6 + log_noise_var.exp()
