@@ -1,7 +1,7 @@
 from   torch.distributions import constraints
 from   torch.nn.parameter  import Parameter
 from   torch.utils.data    import TensorDataset, DataLoader
-from   util                import ScaleLayer, NN
+from   util                import NN
 from   BNN                 import BNN
 import numpy               as np
 import torch
@@ -38,13 +38,12 @@ class GaussianLinear(nn.Module):
         return 'in_features={}, out_features={}'.format(self.in_features, self.out_features)
 
 class BayesianNN(nn.Module):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], scale = True):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50]):
         super(BayesianNN, self).__init__()
         self.dim         = dim
         self.act         = act
         self.num_hiddens = num_hiddens
         self.num_layers  = len(num_hiddens)
-        self.scale       = scale
         self.nn          = self.mlp()
 
     def sample(self):
@@ -64,13 +63,9 @@ class BayesianNN(nn.Module):
         pre_dim = self.dim
         for i in range(self.num_layers):
             layers.append(GaussianLinear(pre_dim, self.num_hiddens[i]))
-            if self.scale:
-                layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
             layers.append(self.act)
             pre_dim = self.num_hiddens[i]
         layers.append(GaussianLinear(pre_dim, 1))
-        if self.scale:
-            layers.append(ScaleLayer(1 / np.sqrt(1 + pre_dim)))
         return nn.Sequential(*layers)
 
 class MixturePrior:
@@ -108,9 +103,8 @@ class BNN_BBB(BNN):
         self.s2          = conf.get('s2',           0.2)
         self.noise_level = conf.get('noise_level',  0.1)
         self.normalize   = conf.get('normalize',    True)
-        self.scale_layer = conf.get('scale_layer',  True)
         self.w_prior     = MixturePrior(factor = self.pi, s1 = self.s1, s2 = self.s2)
-        self.nn          = BayesianNN(dim, self.act, self.num_hiddens, self.scale_layer)
+        self.nn          = BayesianNN(dim, self.act, self.num_hiddens)
 
     def loss(self, X, y):
         num_x   = X.shape[0]
@@ -170,4 +164,5 @@ class BNN_BBB(BNN):
             pred[i] = self.y_mean + nns[i](X).squeeze() * self.y_std
         return pred
 
-
+    def report(self):
+        print(self.nn)

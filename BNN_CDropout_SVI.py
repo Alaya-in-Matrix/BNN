@@ -5,7 +5,6 @@ import numpy    as np
 import torch.nn as nn
 import torch.nn.functional as F
 import os, sys
-from util                import ScaleLayer
 from pyro.distributions.relaxed_straight_through import RelaxedBernoulli
 from torch.distributions.transforms              import AffineTransform
 from torch.distributions.utils import clamp_probs, probs_to_logits, logits_to_probs

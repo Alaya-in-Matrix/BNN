@@ -4,12 +4,12 @@ import torch.nn.functional as F
 import numpy as np
 from BNN import BNN
 from torch.utils.data import TensorDataset, DataLoader
-from util import ScaleLayer, NN
+from util import NN
 from copy import deepcopy
 
 class NN_Dropout(NN):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], dropout_rate = 0.05, scale = True):
-        super(NN_Dropout, self).__init__(dim, act, num_hiddens, scale)
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], dropout_rate = 0.05):
+        super(NN_Dropout, self).__init__(dim, act, num_hiddens)
         self.dropout_rate = dropout_rate
     
     def forward(self, x):
@@ -34,8 +34,7 @@ class BNN_Dropout(BNN):
         self.batch_size   = conf.get('batch_size',   128)
         self.print_every  = conf.get('print_every',  100)
         self.normalize    = conf.get('normalize',    True)
-        self.scale_layer  = conf.get('scale_layer',  False)
-        self.nn           = NN_Dropout(dim, self.act, self.num_hiddens, self.dropout_rate, self.scale_layer)
+        self.nn           = NN_Dropout(dim, self.act, self.num_hiddens, self.dropout_rate)
         if torch.cuda.is_available():
             self.nn = self.nn.cuda()
     
@@ -92,3 +91,7 @@ class BNN_Dropout(BNN):
         for i in range(len(nns)):
             pred[i] = self.y_mean + nns[i](X).squeeze() * self.y_std
         return pred
+
+    def report(self):
+        print(self.nn)
+        print('Dropout rate: %.2f' % self.dropout_rate)

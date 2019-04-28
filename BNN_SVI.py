@@ -1,6 +1,6 @@
 from   pyro.optim          import Adam, SGD
 from   torch.distributions import constraints
-from   util                import ScaleLayer, NN
+from   util                import NN
 from   BNN                 import BNN
 import os, sys
 import pyro
@@ -21,8 +21,7 @@ class BNN_SVI(BNN):
         self.weight_prior = conf.get('weight_prior', 1.0)
         self.noise_level  = conf.get('noise_level',  0.1)
         self.normalize    = conf.get('normalize',    True)
-        self.scale_layer  = conf.get('scale_layer',  True)
-        self.nn           = NN(dim, self.act, self.num_hiddens, self.scale_layer)
+        self.nn           = NN(dim, self.act, self.num_hiddens)
 
     def model(self, X, y):
         """
@@ -76,3 +75,6 @@ class BNN_SVI(BNN):
         for i in range(len(nns)):
             pred[i] = self.y_mean + nns[i](X).squeeze() * self.y_std
         return pred
+
+    def report(self):
+        print(self.nn)
