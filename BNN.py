@@ -45,11 +45,11 @@ class BNN(ABC):
 
     def validate(self, X, y, num_samples = 20):
         with torch.no_grad():
-            nn_samples, prec_samples = self.sample(num_samples)
+            nn_samples   = self.sample(num_samples)
             num_test     = X.shape[0]
             y            = y.reshape(num_test)
-            preds        = self.sample_predict(nn_samples, X)
-            noise_vars   = 1 / prec_samples
+            preds, precs = self.sample_predict(nn_samples, X)
+            noise_vars   = 1 / precs
             py           = preds.mean(dim = 0)
             pv           = preds.var(dim = 0) + noise_vars.mean()
             rmse         = torch.sqrt(torch.mean((py - y)**2))
@@ -58,8 +58,8 @@ class BNN(ABC):
             lls          = torch.logsumexp(-0.5 * normed**2 - 0.5 * torch.log(2 * np.pi * noise_vars.unsqueeze(1)), dim = 0) - np.log(num_samples)
         return rmse, nll_gaussian, -1 * lls.mean()
 
-    def predict_mv(self, input, nn_samples, prec_samples):
-        num_test   = input.shape[0]
-        preds      = self.sample_predict(nn_samples, input)
-        noise_vars = 1 / prec_samples
+    def predict_mv(self, input, nn_samples):
+        num_test     = input.shape[0]
+        preds, precs = self.sample_predict(nn_samples, input)
+        noise_vars   = 1 / precs
         return preds.mean(dim = 0), preds.var(dim = 0) + noise_vars.mean()

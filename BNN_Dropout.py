@@ -28,8 +28,7 @@ class BNN_Dropout(BNN):
         self.num_hiddens  = num_hiddens
         self.num_epochs   = conf.get('num_epochs',   40)
         self.dropout_rate = conf.get('dropout_rate', 0.05)
-        self.tau          = conf.get('tau',          1.0)
-        self.lscale       = conf.get('lscale',       1e-2)
+        self.l2_reg       = conf.get('l2_reg',       1e-6)
         self.lr           = conf.get('lr',           1e-3)
         self.batch_size   = conf.get('batch_size',   128)
         self.print_every  = conf.get('print_every',  100)
@@ -45,8 +44,6 @@ class BNN_Dropout(BNN):
         if torch.cuda.is_available():
             self.X = self.X.cuda()
             self.y = self.y.cuda()
-        self.l2_reg   = self.lscale**2 * (1 - self.dropout_rate) / (2. * num_train * self.tau) # XXX: tau should also be normalized!
-        criterion     = nn.MSELoss()
         dict_decay    = {'params':[], 'weight_decay': self.l2_reg}
         dict_no_decay = {'params':[], 'weight_decay': 0.}
         for name, param in self.nn.named_parameters():
@@ -60,12 +57,15 @@ class BNN_Dropout(BNN):
         for epoch in range(self.num_epochs):
             for bx, by in loader:
                 opt.zero_grad()
-                pred = self.nn(bx).reshape(by.shape)
-                loss = criterion(pred, by)
+                nn_out = self.nn(bx)
+                pred   = nn_out[:, 0]
+                logvar = nn_out[:, 1]
+                prec   = 1 / (torch.exp(logvar) + 1e-6)
+                loss   = 0.5 * torch.mean(prec * (pred - by)**2 + logvar)
                 loss.backward()
                 opt.step()
             if (epoch + 1) % self.print_every == 0:
-                print("[Epoch %5d, loss = %g]" % (epoch + 1, loss))
+                print("[Epoch %5d, loss = %.2f, mse = %.2f]" % (epoch + 1, loss, nn.MSELoss()(pred, by)))
         self.nn = self.nn.cpu()
         if self.normalize:
             self.x_mean  = self.x_mean.cpu()
@@ -82,15 +82,21 @@ class BNN_Dropout(BNN):
                 if isinstance(layer, nn.Linear) and layer.weight.shape[1] > 1:
                     layer.weight.data *= F.dropout(torch.ones(layer.weight.shape[1]), p = self.dropout_rate) * (1 - self.dropout_rate)
             nns.append(net)
-        return nns, self.tau * torch.ones(num_samples)
+        return nns
 
     def sample_predict(self, nns, X):
-        num_x = X.shape[0]
-        X     = (X - self.x_mean) / self.x_std
-        pred  = torch.zeros(len(nns), num_x)
+        num_x     = X.shape[0]
+        X         = (X - self.x_mean) / self.x_std
+        pred      = torch.zeros(len(nns), num_x)
+        prec = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
-            pred[i] = self.y_mean + nns[i](X).squeeze() * self.y_std
-        return pred
+            nn_out    = nns[i](X)
+            py        = nn_out[:, 0]
+            logvar    = nn_out[:, 1]
+            noise_var = (1e-6 + logvar.exp()) * self.y_std**2
+            pred[i] = self.y_mean + py  * self.y_std
+            prec[i] = 1 / noise_var
+        return pred, prec
 
     def report(self):
         print(self.nn)

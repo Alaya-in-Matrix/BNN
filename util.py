@@ -22,8 +22,9 @@ class NN(nn.Module):
             layers.append(nn.Linear(pre_dim, self.num_hiddens[i], bias=True))
             layers.append(self.act)
             pre_dim = self.num_hiddens[i]
-        layers.append(nn.Linear(pre_dim, 1, bias = True))
+        layers.append(nn.Linear(pre_dim, 2, bias = True))
         return nn.Sequential(*layers)
     
     def forward(self, x):
-        return self.nn(x)
+        out = self.nn(x)
+        return out
