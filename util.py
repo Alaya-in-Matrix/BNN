@@ -31,5 +31,5 @@ class NN(nn.Module):
         out = self.nn(x)
         return out
 
-def stable_noise_var(log_noise_var):
-    return 1e-6 + log_noise_var.exp()
+def stable_noise_var(input):
+    return F.softplus(torch.clamp(input, min = -10.))

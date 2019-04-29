@@ -55,17 +55,19 @@ class BNN_Dropout(BNN):
         dataset = TensorDataset(self.X, self.y)
         loader  = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         for epoch in range(self.num_epochs):
+            epoch_loss = 0.
             for bx, by in loader:
                 opt.zero_grad()
                 nn_out = self.nn(bx)
                 pred   = nn_out[:, 0]
                 logvar = nn_out[:, 1]
                 prec   = 1 / stable_noise_var(logvar)
-                loss   = 0.5 * torch.mean(prec * (pred - by)**2 + logvar) # XXX: prec = 1 / (1e-8 + torch.exp(logvar))
+                loss   = 0.5 * torch.sum(prec * (pred - by)**2 - prec.log())  
                 loss.backward()
                 opt.step()
+                epoch_loss += loss
             if (epoch + 1) % self.print_every == 0:
-                print("[Epoch %5d, loss = %.2f, mse = %.2f]" % (epoch + 1, loss, nn.MSELoss()(pred, by)))
+                print("[Epoch %5d, loss = %.2f]" % (epoch + 1, epoch_loss / num_train))
         self.nn = self.nn.cpu()
         if self.normalize:
             self.x_mean  = self.x_mean.cpu()
