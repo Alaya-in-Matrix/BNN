@@ -1,13 +1,14 @@
 from   torch.distributions import constraints
 from   torch.nn.parameter  import Parameter
 from   torch.utils.data    import TensorDataset, DataLoader
-from   util                import NN, stable_noise_var
+from   util                import NN, stable_noise_var, stable_nn_lik
 from   BNN                 import BNN
 import numpy               as np
 import torch
 import torch.nn            as nn
 import torch.nn.functional as F
 import sys, os
+from torch import autograd
 
 class GaussianLinear(nn.Module):
     def __init__(self, in_features, out_features):
@@ -17,18 +18,22 @@ class GaussianLinear(nn.Module):
         self.mu           = Parameter(torch.randn(out_features, 1 + in_features))
         self.rho          = Parameter(torch.randn(out_features, 1 + in_features))
 
+    def rsample(self):
+        eps           = torch.randn(self.mu.shape)
+        scale         = F.softplus(torch.clamp(self.rho, min = -7.))
+        self.wb       = self.mu + scale * eps
+        self.log_prob = torch.sum(-0.5 * torch.pow((self.wb - self.mu) / scale, 2) - 0.5 * torch.log(2 * np.pi * scale**2))
+
     def forward(self, input):
-        self.dist           = torch.distributions.Normal(self.mu, 1e-4 + F.softplus(self.rho))
-        self.wb             = self.dist.rsample()
-        w                   = self.wb[:, :-1]
-        b                   = self.wb[:, -1]
-        self.log_prob       = self.dist.log_prob(self.wb).sum()
+        self.rsample()
+        w = self.wb[:, :-1]
+        b = self.wb[:, -1]
         return F.linear(input, weight=w, bias = b)
 
     def sample_linear(self):
-        wb                = self.dist.rsample()
-        w                 = wb[:, :-1]
-        b                 = wb[:, -1]
+        self.rsample()
+        w                 = self.wb[:, :-1]
+        b                 = self.wb[:, -1]
         layer             = nn.Linear(self.in_features, self.out_features, bias = True)
         layer.weight.data = w.clone()
         layer.bias.data   = b.clone()
@@ -38,9 +43,10 @@ class GaussianLinear(nn.Module):
         return 'in_features={}, out_features={}'.format(self.in_features, self.out_features)
 
 class BayesianNN(nn.Module):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50]):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 2):
         super(BayesianNN, self).__init__()
         self.dim         = dim
+        self.nout        = nout
         self.act         = act
         self.num_hiddens = num_hiddens
         self.num_layers  = len(num_hiddens)
@@ -54,7 +60,6 @@ class BayesianNN(nn.Module):
 
     def forward(self, input):
         out = self.nn(input)
-        out[:, 2] = np.log(0.01)
         return out
 
     def mlp(self):
@@ -64,7 +69,7 @@ class BayesianNN(nn.Module):
             layers.append(GaussianLinear(pre_dim, self.num_hiddens[i]))
             layers.append(self.act)
             pre_dim = self.num_hiddens[i]
-        layers.append(GaussianLinear(pre_dim, 2))
+        layers.append(GaussianLinear(pre_dim, self.nout))
         return nn.Sequential(*layers)
 
 class BNN_BBB(BNN):
@@ -73,12 +78,12 @@ class BNN_BBB(BNN):
         self.dim         = dim
         self.act         = act
         self.num_hiddens = num_hiddens
-        self.num_epochs  = conf.get('num_epochs',   400)
-        self.batch_size  = conf.get('batch_size',   32)
-        self.print_every = conf.get('print_every',  50)
+        self.num_epochs  = conf.get('num_epochs',   4000)
+        self.batch_size  = conf.get('batch_size',   64)
+        self.print_every = conf.get('print_every',  100)
         self.lr          = conf.get('lr',           1e-2)
         self.normalize   = conf.get('normalize',    True)
-        self.w_prior     = torch.distributions.Normal(torch.zeros(1), 0.4 * torch.ones(1))
+        self.w_prior     = torch.distributions.Normal(torch.zeros(1), torch.ones(1))
         self.nn          = BayesianNN(dim, self.act, self.num_hiddens)
 
     def loss(self, X, y):
@@ -86,11 +91,7 @@ class BNN_BBB(BNN):
         X           = X.reshape(num_x, self.dim)
         y           = y.reshape(num_x)
         nn_out      = self.nn(X)
-        pred        = nn_out[:, 0]
-        logvar      = nn_out[:, 1]
-        prec        = 1 / stable_noise_var(logvar)
-        # log_lik     = torch.sum(-0.5 * prec * (pred - y)**2 - 0.5 * logvar - 0.5 * np.log(2 * np.pi))
-        log_lik     = -1 * nn.MSELoss()(pred, y)
+        log_lik     = stable_nn_lik(nn_out, y).sum()
         log_qw      = torch.tensor(0.)
         log_pw      = torch.tensor(0.)
         for layer in self.nn.nn:
@@ -98,15 +99,7 @@ class BNN_BBB(BNN):
                 log_qw += layer.log_prob
                 log_pw += self.w_prior.log_prob(layer.wb).sum()
         kl_term = log_qw - log_pw
-        if torch.isinf(log_lik):
-            rec = torch.zeros(logvar.numel(), 4)
-            rec[:, 0] = pred
-            rec[:, 1] = noise_level
-            rec[:, 2] = y
-            rec[:, 3] = torch.distributions.Normal(pred, noise_level).log_prob(y)
-            print(rec)
-            sys.exit(1)
-        return log_lik / num_x, kl_term / num_x
+        return log_lik, kl_term
 
     def train(self, X, y):
         num_x = X.shape[0]
@@ -115,39 +108,33 @@ class BNN_BBB(BNN):
         self.normalize_Xy(X, y, self.normalize)
         dataset   = TensorDataset(self.X, self.y)
         loader    = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
-        opt       = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
-        num_batch = len(loader)
+        # opt       = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
+        opt       = torch.optim.RMSprop(self.nn.parameters(), lr = self.lr, centered = True)
         for epoch in range(self.num_epochs):
-            batch_cnt = 1
+            epoch_kl  = 0.
+            epoch_lik = 0.
             for bx, by in loader:
                 opt.zero_grad()
                 log_lik, kl_term  = self.loss(bx, by)
-                # pi                = 2**(num_batch - batch_cnt) / (2**(num_batch) - 1)
-                pi = 0.
-                loss              = (pi * kl_term - log_lik)
+                kl_term          *= bx.shape[0] / num_x
+                loss              = kl_term - log_lik
                 loss.backward()
-                for n, p in self.nn.named_parameters():
-                    if torch.isnan(p.grad).any() or torch.isinf(p.grad).any():
-                        print(n)
-                        print(p)
-                        print(p.grad)
-                        print('lik = %.2f, kl = %.2f' % (log_lik, kl_term))
-                        sys.exit(1)
                 opt.step()
-                batch_cnt += 1
+                epoch_kl  += kl_term
+                epoch_lik += log_lik
             if ((epoch + 1) % self.print_every == 0):
                 log_lik, kl_term = self.loss(self.X, self.y)
-                print("[Epoch %5d, loss = %.4g (KL = %.4g, -log_lik = %.4g)]" % (epoch + 1, kl_term - log_lik, kl_term, -1 * log_lik), flush = True)
+                print("[Epoch %5d, loss = %.4g (KL = %.4g, -log_lik = %.4g)]" % (epoch + 1, epoch_kl - epoch_lik, epoch_kl, -1 * epoch_lik))
 
     def sample(self, num_samples = 1):
         nns = [self.nn.sample() for i in range(num_samples)]
         return nns
 
     def sample_predict(self, nns, X):
-        num_x     = X.shape[0]
-        X         = (X - self.x_mean) / self.x_std
-        pred      = torch.zeros(len(nns), num_x)
-        prec = torch.zeros(len(nns), num_x)
+        num_x = X.shape[0]
+        X     = (X - self.x_mean) / self.x_std
+        pred  = torch.zeros(len(nns), num_x)
+        prec  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
             nn_out    = nns[i](X)
             py        = nn_out[:, 0]

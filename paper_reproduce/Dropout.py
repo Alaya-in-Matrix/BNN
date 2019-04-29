@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from BNN_BBB import BNN_BBB
+from BNN_Dropout import BNN_Dropout
 import matplotlib.pyplot as plt
 import pickle
 
@@ -58,7 +58,7 @@ def uci(dataset, split_id):
    conf['batch_size']  = 128          # XXX: 32, not 128
    conf['noise_level'] = 1/np.sqrt(tau)
    conf['print_every'] = 100
-   model = BNN_BBB(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
+   model = BNN_Dropout(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
    rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=1000)
    print('RMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, nll_gaussian, nll))

@@ -62,4 +62,4 @@ class BNN(ABC):
         num_test     = input.shape[0]
         preds, precs = self.sample_predict(nn_samples, input)
         noise_vars   = 1 / precs
-        return preds.mean(dim = 0), preds.var(dim = 0) + noise_vars.mean()
+        return preds.mean(dim = 0), preds.var(dim = 0) + noise_vars.mean(dim=0)

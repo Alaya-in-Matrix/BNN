@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from BNN import BNN
 from torch.utils.data import TensorDataset, DataLoader
-from util import NN, stable_noise_var
+from util import NN, stable_noise_var, stable_nn_lik
 from copy import deepcopy
 
 class NN_Dropout(NN):
@@ -59,10 +59,7 @@ class BNN_Dropout(BNN):
             for bx, by in loader:
                 opt.zero_grad()
                 nn_out = self.nn(bx)
-                pred   = nn_out[:, 0]
-                logvar = nn_out[:, 1]
-                prec   = 1 / stable_noise_var(logvar)
-                loss   = 0.5 * torch.sum(prec * (pred - by)**2 - prec.log())  
+                loss   = -1 * stable_nn_lik(nn_out, by).sum()
                 loss.backward()
                 opt.step()
                 epoch_loss += loss

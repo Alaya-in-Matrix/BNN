@@ -32,4 +32,11 @@ class NN(nn.Module):
         return out
 
 def stable_noise_var(input):
-    return F.softplus(torch.clamp(input, min = -10.))
+    return F.softplus(torch.clamp(input, min = -5.))
+
+def stable_log_lik(mu, var, y):
+    noise_var = stable_noise_var(var)
+    return -0.5 * (mu - y)**2 / noise_var - 0.5 * torch.log(noise_var) - 0.5 * np.log(2 * np.pi)
+
+def stable_nn_lik(nn_out, y):
+    return stable_log_lik(nn_out[:, 0], nn_out[:, 1], y)
