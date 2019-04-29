@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from BNN import BNN
 from torch.utils.data import TensorDataset, DataLoader
-from util import NN
+from util import NN, stable_noise_var
 from copy import deepcopy
 
 class NN_Dropout(NN):
@@ -26,11 +26,11 @@ class BNN_Dropout(BNN):
         self.dim          = dim
         self.act          = act
         self.num_hiddens  = num_hiddens
-        self.num_epochs   = conf.get('num_epochs',   40)
+        self.num_epochs   = conf.get('num_epochs',   400)
         self.dropout_rate = conf.get('dropout_rate', 0.05)
         self.l2_reg       = conf.get('l2_reg',       1e-6)
-        self.lr           = conf.get('lr',           1e-3)
-        self.batch_size   = conf.get('batch_size',   128)
+        self.lr           = conf.get('lr',           1e-2)
+        self.batch_size   = conf.get('batch_size',   32)
         self.print_every  = conf.get('print_every',  100)
         self.normalize    = conf.get('normalize',    True)
         self.nn           = NN_Dropout(dim, self.act, self.num_hiddens, self.dropout_rate)
@@ -60,8 +60,8 @@ class BNN_Dropout(BNN):
                 nn_out = self.nn(bx)
                 pred   = nn_out[:, 0]
                 logvar = nn_out[:, 1]
-                prec   = 1 / (torch.exp(logvar) + 1e-6)
-                loss   = 0.5 * torch.mean(prec * (pred - by)**2 + logvar)
+                prec   = 1 / stable_noise_var(logvar)
+                loss   = 0.5 * torch.mean(prec * (pred - by)**2 + logvar) # XXX: prec = 1 / (1e-8 + torch.exp(logvar))
                 loss.backward()
                 opt.step()
             if (epoch + 1) % self.print_every == 0:
@@ -93,9 +93,9 @@ class BNN_Dropout(BNN):
             nn_out    = nns[i](X)
             py        = nn_out[:, 0]
             logvar    = nn_out[:, 1]
-            noise_var = (1e-6 + logvar.exp()) * self.y_std**2
-            pred[i] = self.y_mean + py  * self.y_std
-            prec[i] = 1 / noise_var
+            noise_var = stable_noise_var(logvar) * self.y_std**2
+            pred[i]   = self.y_mean + py  * self.y_std
+            prec[i]   = 1 / noise_var
         return pred, prec
 
     def report(self):

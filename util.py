@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 
 class NN(nn.Module):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50]):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 2): #XXX: nout = 2, output and logarithm of heteroscedastic noise variance
         super(NN, self).__init__()
         self.dim          = dim
+        self.nout         = nout
         self.act          = act
         self.num_hiddens  = num_hiddens
         self.num_layers   = len(num_hiddens)
@@ -22,7 +24,7 @@ class NN(nn.Module):
             layers.append(nn.Linear(pre_dim, self.num_hiddens[i], bias=True))
             layers.append(self.act)
             pre_dim = self.num_hiddens[i]
-        layers.append(nn.Linear(pre_dim, 2, bias = True))
+        layers.append(nn.Linear(pre_dim, self.nout, bias = True))
         return nn.Sequential(*layers)
     
     def forward(self, x):
