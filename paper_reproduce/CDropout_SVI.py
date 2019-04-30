@@ -54,12 +54,12 @@ def uci(dataset, split_id):
        return np.nan, np.nan, np.nan, np.nan
    print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
    conf = dict()
-   conf['num_epochs']  = 100*n_epochs  # XXX: 10x, not 100x
-   conf['batch_size']  = 128           # XXX: 32, not 128
+   conf['num_epochs']  = 10*n_epochs  # XXX: 10x, not 100x
+   conf['batch_size']  = 32           # XXX: 32, not 128
    conf['print_every'] = 100
    conf['lr']          = 1e-2
-   conf['alpha']       = 0.1  # Same with the original paper
-   conf['beta']        = 0.01
+   conf['alpha']       = 6.  # Same with the original paper
+   conf['beta']        = 6.
    conf['init_prec']   = 1. # XXX corresponding to normalized data
    model = BNN_CDropout_SVI(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
@@ -79,6 +79,8 @@ ds = [
  , 'wine-quality-red'
  , 'yacht'
 ]
+
+ds = ['kin8nm']
 
 
 stat = dict()

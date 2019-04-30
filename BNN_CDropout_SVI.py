@@ -47,7 +47,9 @@ class BNN_CDropout_SVI(BNN):
         wp          = self.weight_prior
         para        = dict()
         in_feature  = self.dim
-        precision   = pyro.sample("precision", pyro.distributions.Gamma(self.alpha, self.beta))
+        # precision   = pyro.sample("precision", pyro.distributions.Gamma(self.alpha, self.beta))
+        log_prec    = pyro.param("log_prec", torch.log(torch.as_tensor(1.)))
+        precision   = 1e-9 + torch.exp(log_prec)
         noise_level = 1 / precision.sqrt()
         for i in range(len(self.num_hiddens)):
             para['w{}'.format(i)] = pyro.sample("w{}".format(i), pyro.distributions.Normal(torch.tensor(0.), wp * torch.ones(self.num_hiddens[i], in_feature)))
@@ -58,7 +60,6 @@ class BNN_CDropout_SVI(BNN):
         with pyro.plate("map", len(X), subsample_size = min(num_x, self.batch_size)) as ind:
             out         = X[ind]
             in_feature  = self.dim
-            noise_level = 1 / precision.sqrt()
             for i in range(len(self.num_hiddens)):
                 out = F.linear(input = out, weight = para['w{}'.format(i)], bias = para['b{}'.format(i)])
                 out = self.act(out)
@@ -73,8 +74,6 @@ class BNN_CDropout_SVI(BNN):
 
     def guide(self, X, y):
         in_feature     = self.dim
-        precision_para = pyro.param("precision_para", torch.tensor(self.init_prec)) # XXX: SNR = 10, if y is normalized
-        precision      = pyro.sample("precision", pyro.distributions.Delta(v = precision_para))
         for i in range(len(self.num_hiddens)):
             p_logit = pyro.param("p_logit_{}".format(i),      probs_to_logits(torch.as_tensor(self.dropout_rate), is_binary = True))
             bias    = pyro.param("bias_param_{}".format(i),   torch.zeros(self.num_hiddens[i]))
@@ -151,7 +150,7 @@ class BNN_CDropout_SVI(BNN):
         print("Model precision: %4.3f" % self.sample_prec())
 
     def sample_prec(self):
-        return pyro.param("precision_para").item() / self.y_std**2
+        return torch.exp(pyro.param("log_prec")).item() / self.y_std**2
     
     def sample(self, num_samples = 1):
         nns   = [self.sample_one()  for i in range(num_samples)]
