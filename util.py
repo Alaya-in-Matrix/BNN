@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from torch.distributions.utils import clamp_probs
+from torch.distributions.relaxed_bernoulli import RelaxedBernoulli
 
 class NN(nn.Module):
     def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 2): #XXX: nout = 2, output and logarithm of heteroscedastic noise variance
@@ -31,8 +33,15 @@ class NN(nn.Module):
         out = self.nn(x)
         return out
 
+class StableRelaxedBernoulli(RelaxedBernoulli):
+    """
+    Numerical stable relaxed Bernoulli distribution
+    """
+    def rsample(self, sample_shape = torch.Size()):
+        return clamp_probs(super(StableRelaxedBernoulli, self).rsample(sample_shape))
+
 def stable_noise_var(input):
-    return F.softplus(torch.clamp(input, min = -5.))
+    return F.softplus(torch.clamp(input, min = -10.))
 
 def stable_log_lik(mu, var, y):
     noise_var = stable_noise_var(var)

@@ -5,18 +5,10 @@ import numpy    as np
 import torch.nn as nn
 import torch.nn.functional as F
 import os, sys
-from pyro.distributions.relaxed_straight_through import RelaxedBernoulli
 from torch.distributions.transforms              import AffineTransform
 from torch.distributions.utils import clamp_probs, probs_to_logits, logits_to_probs
 from pyro.distributions import TransformedDistribution
 from BNN import BNN
-
-class StableRelaxedBernoulli(RelaxedBernoulli):
-    """
-    Numerical stable relaxed Bernoulli distribution
-    """
-    def rsample(self, sample_shape = torch.Size()):
-        return clamp_probs(super(StableRelaxedBernoulli, self).rsample(sample_shape))
 
 class BNN_CDropout_SVI(BNN):
 
