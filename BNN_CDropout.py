@@ -81,8 +81,8 @@ class BNN_CDropout(BNN):
         self.act          = act
         self.num_hiddens  = num_hiddens
         self.num_epochs   = conf.get('num_epochs',   400)
-        self.l2_reg       = conf.get('l2_reg',       1e-6)
         self.lr           = conf.get('lr',           1e-2)
+        self.lscale       = conf.get('lscale',       1e-2)
         self.batch_size   = conf.get('batch_size',   32)
         self.print_every  = conf.get('print_every',  100)
         self.normalize    = conf.get('normalize',    True)
@@ -101,21 +101,49 @@ class BNN_CDropout(BNN):
         dataset   = TensorDataset(self.X, self.y)
         loader    = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         for epoch in range(self.num_epochs):
-            epoch_loss = 0.
+            epoch_lik  = 0.
+            epoch_wreg = 0.
+            epoch_ent  = 0.
             for bx, by in loader:
                 opt.zero_grad()
-                loss = -1 * stable_nn_lik(self.nn(bx), by).sum()
+                log_lik    = stable_nn_lik(self.nn(bx), by).sum()
+                wreg, ent  = self.reg()
+                wreg      *= bx.shape[0] / num_train
+                ent       *= bx.shape[0] / num_train
+                loss       = -1 * log_lik + (wreg - ent)
                 loss.backward()
                 opt.step()
-                epoch_loss += loss
+                epoch_lik  += log_lik / num_train
+                epoch_wreg += wreg    / num_train
+                epoch_ent  += ent     / num_train
             if (epoch + 1) % self.print_every == 0:
-                print("[Epoch %5d, loss = %.2f]" % (epoch + 1, epoch_loss))
+                print("[Epoch %5d, loss = %-6.2f, -log_lik = %-6.2f, wreg = %-6.2f, -entropy = %6.2f]" % (
+                    epoch + 1,
+                    epoch_wreg - epoch_ent - epoch_lik,
+                    -1 * epoch_lik,
+                    epoch_wreg,
+                    -1 * epoch_ent)
+                )
         self.nn = self.nn.cpu()
         if self.normalize:
             self.x_mean  = self.x_mean.cpu()
             self.x_std   = self.x_std.cpu()
             self.y_mean  = self.y_mean.cpu()
             self.y_std   = self.y_std.cpu()
+    
+    def reg(self):
+        entropy    = torch.tensor(0.)
+        weight_reg = torch.tensor(0.)
+        for layer in self.nn.nn:
+            if isinstance(layer, CDropoutLinear):
+                dr_rate      = layer.layer[0].dropout_rate()
+                in_features  = torch.tensor(1. * layer.layer[1].in_features)
+                ent          = -1 * dr_rate * torch.log(dr_rate) - (1 - dr_rate) * torch.log(1 - dr_rate)
+                w2           = torch.sum(layer.layer[1].weight**2)
+                entropy     += in_features * ent
+                weight_reg  += self.lscale*2 * (1 - dr_rate) * w2
+        return weight_reg, entropy
+
 
     def sample(self, num_samples = 1):
         nns = [self.nn.sample() for i in range(num_samples)]
