@@ -141,7 +141,7 @@ class BNN_CDropout(BNN):
                 ent          = -1 * dr_rate * torch.log(dr_rate) - (1 - dr_rate) * torch.log(1 - dr_rate)
                 w2           = torch.sum(layer.layer[1].weight**2)
                 entropy     += in_features * ent
-                weight_reg  += self.lscale*2 * (1 - dr_rate) * w2
+                weight_reg  += 0.5 * self.lscale*2 * (1 - dr_rate) * w2
         return weight_reg, entropy
 
 

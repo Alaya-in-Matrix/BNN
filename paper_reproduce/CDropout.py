@@ -57,7 +57,7 @@ def uci(dataset, split_id):
    conf['num_epochs']  = 100*n_epochs  # XXX: 10x, not 100x
    conf['batch_size']  = 128           # XXX: 32, not 128
    conf['print_every'] = 100
-   conf['lr']          = 1e-3
+   conf['lr']          = 1e-2
    model = BNN_CDropout(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
    model.report()
@@ -69,16 +69,13 @@ ds = [
   'bostonHousing'
  , 'concrete'
  , 'energy'
- # , 'kin8nm'
- # , 'naval-propulsion-plant'
- # , 'power-plant'
- # , 'protein-tertiary-structure'
+ , 'kin8nm'
+ , 'naval-propulsion-plant'
+ , 'power-plant'
+ , 'protein-tertiary-structure'
  , 'wine-quality-red'
  , 'yacht'
 ]
-
-ds = ['concrete']
-
 
 stat = dict()
 from multiprocessing import Pool
@@ -87,6 +84,6 @@ for d in ds:
         return uci(d, split_id)
     with Pool(num_thread) as p:
         stat[d] = p.map(f, list(range(20)))
-    f = open("./results/stat_CDropout_SVI.pkl","wb")
+    f = open("./results/stat_CDropout.pkl","wb")
     pickle.dump(stat,f)
     f.close()
