@@ -35,7 +35,7 @@ def get_data(dataset, split_id):
        n_epochs = None
    else:
        train_id = np.loadtxt('../UCI_Datasets/' + dataset + "/data/index_train_" + str(split_id) + ".txt", dtype = np.int64)
-       test_id = np.loadtxt('../UCI_Datasets/' + dataset + "/data/index_test_" + str(split_id) + ".txt", dtype = np.int64)
+       test_id  = np.loadtxt('../UCI_Datasets/' + dataset + "/data/index_test_" + str(split_id) + ".txt", dtype = np.int64)
        tau      = np.loadtxt('../UCI_Datasets/' + dataset + "/results/test_tau_100_xepochs_1_hidden_layers.txt")[split_id]
        n_hidden = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_hidden.txt", dtype = np.int64)
        n_epochs = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_epochs.txt", dtype = np.int64)
@@ -58,6 +58,7 @@ def uci(dataset, split_id):
    conf['batch_size']  = 128           # XXX: 32, not 128
    conf['print_every'] = 100
    conf['lr']          = 1e-2
+   conf['lscale']      = 2.
    model = BNN_CDropout(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
    model.report()

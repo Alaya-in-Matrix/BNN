@@ -36,6 +36,15 @@ class CDropoutLinear(nn.Module):
     def forward(self, input):
         return self.layer(input)
 
+    def dropout_rate(self):
+        return self.layer[0].dropout_rate()
+
+    def reg(self):
+        p       = self.layer[0].dropout_rate()
+        entropy = -1 * (p * p.log() + (1-p) * (1-p).log())
+        w2      = torch.sum(self.layer[1].weight**2)
+        return w2, torch.tensor(1.*self.layer[1].in_features) * entropy
+
     def sample(self):
         dropout_rate        = self.layer[0].dropout_rate()
         linear              = nn.Linear(self.layer[1].in_features, self.layer[1].out_features)
@@ -47,12 +56,14 @@ class CDropoutLinear(nn.Module):
 class NN_CDropout(nn.Module):
     def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 2):
         super(NN_CDropout, self).__init__()
-        self.dim          = dim
-        self.nout         = nout
-        self.act          = act
-        self.num_hiddens  = num_hiddens
-        self.num_layers   = len(num_hiddens)
-        self.nn           = self.mlp()
+        self.dim         = dim
+        self.nout        = nout
+        self.act         = act
+        self.num_hiddens = num_hiddens
+        self.num_layers  = len(num_hiddens)
+        self.hidden      = self.mlp()
+        self.pred        = CDropoutLinear(num_hiddens[-1], 1)
+        self.logvar      = CDropoutLinear(num_hiddens[-1], 1)
 
     def mlp(self):
         layers  = []
@@ -61,18 +72,25 @@ class NN_CDropout(nn.Module):
             layers.append(CDropoutLinear(pre_dim, self.num_hiddens[i]))
             layers.append(self.act)
             pre_dim = self.num_hiddens[i]
-        layers.append(CDropoutLinear(pre_dim, self.nout))
         return nn.Sequential(*layers)
 
     def sample(self):
         layers = []
-        for layer in self.nn:
+        for layer in self.hidden:
             layers.append(layer.sample() if isinstance(layer, CDropoutLinear) else layer)
+        pred_layer            = self.pred.sample()
+        logvar_layer          = self.logvar.sample()
+        out_layer             = nn.Linear(self.num_hiddens[-1], 2)
+        out_layer.weight.data = torch.cat((pred_layer.weight.data, logvar_layer.weight.data), dim=0).clone()
+        out_layer.bias.data   = torch.cat((pred_layer.bias.data, logvar_layer.bias.data)).clone()
+        layers.append(out_layer)
         return nn.Sequential(*layers)
 
     def forward(self, input):
-        out = self.nn(input)
-        return out
+        out    = self.hidden(input)
+        pred   = self.pred(out)
+        logvar = self.logvar(out)
+        return torch.cat((pred, logvar), dim = input.dim()-1)
 
 class BNN_CDropout(BNN):
     def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], conf = dict()):
@@ -113,11 +131,11 @@ class BNN_CDropout(BNN):
                 loss       = -1 * log_lik + (wreg - ent)
                 loss.backward()
                 opt.step()
-                epoch_lik  += log_lik / num_train
-                epoch_wreg += wreg    / num_train
-                epoch_ent  += ent     / num_train
+                epoch_lik  += log_lik 
+                epoch_wreg += wreg    
+                epoch_ent  += ent     
             if (epoch + 1) % self.print_every == 0:
-                print("[Epoch %5d, loss = %-6.2f, -log_lik = %-6.2f, wreg = %-6.2f, -entropy = %6.2f]" % (
+                print("[Epoch %5d, loss = %-6.2f, -log_lik = %-6.2f, wreg = %g, -entropy = %6.2f]" % (
                     epoch + 1,
                     epoch_wreg - epoch_ent - epoch_lik,
                     -1 * epoch_lik,
@@ -134,14 +152,17 @@ class BNN_CDropout(BNN):
     def reg(self):
         entropy    = torch.tensor(0.)
         weight_reg = torch.tensor(0.)
-        for layer in self.nn.nn:
+        for layer in self.nn.hidden:
             if isinstance(layer, CDropoutLinear):
-                dr_rate      = layer.layer[0].dropout_rate()
-                in_features  = torch.tensor(1. * layer.layer[1].in_features)
-                ent          = -1 * dr_rate * torch.log(dr_rate) - (1 - dr_rate) * torch.log(1 - dr_rate)
-                w2           = torch.sum(layer.layer[1].weight**2)
-                entropy     += in_features * ent
-                weight_reg  += 0.5 * self.lscale*2 * (1 - dr_rate) * w2
+                w2, ent     = layer.reg()
+                entropy    += ent
+                weight_reg += 0.5 * self.lscale**2 * (1 - layer.dropout_rate()) * w2
+        w2, ent     = self.nn.pred.reg()
+        entropy    += ent
+        weight_reg += 0.5 * self.lscale**2 * (1 - self.nn.pred.dropout_rate()) * w2
+        w2, ent     = self.nn.logvar.reg()
+        entropy    += ent
+        weight_reg += 0.5 * self.lscale**2 * (1 - self.nn.logvar.dropout_rate()) * w2
         return weight_reg, entropy
 
 
@@ -164,4 +185,4 @@ class BNN_CDropout(BNN):
         return pred, prec
 
     def report(self):
-        print(self.nn.nn)
+        print(self.nn)
