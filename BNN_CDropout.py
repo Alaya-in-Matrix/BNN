@@ -19,8 +19,21 @@ class CDropout(nn.Module):
         return clamp_probs(torch.sigmoid(self.p_logit))
 
     def forward(self, input):
-        bdist = StableRelaxedBernoulli(probs = 1 - self.dropout_rate(), temperature = 0.1)
-        return input * bdist.rsample(input.shape)
+        # bdist = StableRelaxedBernoulli(probs = 1 - self.dropout_rate(), temperature = 0.1)
+        # return input * bdist.rsample(input.shape)
+        p = self.dropout_rate()
+        eps        = 1e-7
+        temp       = 0.1
+        unif_noise = torch.rand_like(input)
+        drop_prob  = (torch.log(p + eps)
+                    - torch.log(1 - p + eps)
+                    + torch.log(unif_noise + eps)
+                    - torch.log(1 - unif_noise + eps))
+        
+        drop_prob      = torch.sigmoid(drop_prob / temp)
+        random_tensor  = 1 - drop_prob
+        
+        return input * random_tensor
 
     def extra_repr(self):
         return 'dropout_rate = {}'.format(self.dropout_rate())

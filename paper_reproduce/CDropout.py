@@ -58,7 +58,7 @@ def uci(dataset, split_id):
    conf['batch_size']  = 128           # XXX: 32, not 128
    conf['print_every'] = 100
    conf['lr']          = 1e-2
-   conf['lscale']      = 2.
+   conf['lscale']      = 1.
    model = BNN_CDropout(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
    model.report()
