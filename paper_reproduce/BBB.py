@@ -55,13 +55,12 @@ def uci(dataset, split_id):
    print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
    conf = dict()
    conf['num_epochs']  = 100*n_epochs # XXX: 10x, not 100x
-   conf['batch_size']  = 128          # XXX: 32, not 128
-   conf['noise_level'] = 1/np.sqrt(tau)
+   conf['batch_size']  = 256          # XXX: 32, not 128
    conf['print_every'] = 100
    model = BNN_BBB(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
    rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=1000)
-   print('RMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, nll_gaussian, nll))
+   print('SMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse**2 / train_y.var(), nll_gaussian, nll), flush = True)
    return rmse, nll_gaussian, nll
 
 ds = [
@@ -77,13 +76,16 @@ ds = [
 
 ]
 
+ds = ['concrete']
+
 stat = dict()
 from multiprocessing import Pool
 for d in ds:
     def f(split_id):
         return uci(d, split_id)
-    with Pool(num_thread) as p:
-        stat[d] = p.map(f, list(range(20)))
+    stat[d] = [f(split_id) for split_id in range(10)]
+    # with Pool(num_thread) as p:
+    #     stat[d] = p.map(f, list(range(20)))
     f = open("./results/stat_BBB.pkl","wb")
     pickle.dump(stat,f)
     f.close()
