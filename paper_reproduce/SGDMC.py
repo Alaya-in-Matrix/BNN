@@ -56,9 +56,8 @@ def uci(dataset, split_id):
    conf = dict()
    num_train = train_x.shape[0]
    n_epochs *= 100
-   # conf['num_epochs'] = 100*n_epochs  # XXX: 10x, not 100x
    conf['batch_size']   = 128           # XXX: 32, not 128
-   conf['lr']           = 1e-5
+   conf['lr']           = 3e-5
    conf['steps_burnin'] = int(0.25 * n_epochs * (num_train / conf['batch_size']))
    conf['steps']        = int(0.75 * n_epochs * (num_train / conf['batch_size']))
    conf['keep_every']   = int(conf['steps'] / 55)

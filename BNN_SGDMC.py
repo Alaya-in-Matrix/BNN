@@ -15,7 +15,7 @@ class NoisyNN(NN):
     
     def forward(self, input):
         out     = self.nn(input)
-        logvars = self.logvar * torch.ones(out.shape)
+        logvars = self.logvar * out.new_ones(out.shape)
         return torch.cat((out, logvars), dim = out.dim() - 1)
 
 
@@ -32,7 +32,10 @@ class BNN_SGDMC(nn.Module, BNN):
         self.normalize   = conf.get('normalize',  True)
         self.batch_size  = conf.get('batch_size', 64)
         self.lr          = conf.get('lr', 1e-3)
+        self.use_cuda    = conf.get('use_cuda',False) and torch.cuda.is_available()
         self.nn          = NoisyNN(dim, self.act, self.num_hiddens)
+        if self.use_cuda:
+            self.nn = self.nn.cuda()
 
     def log_prior(self):
         """
@@ -64,7 +67,7 @@ class BNN_SGDMC(nn.Module, BNN):
                     for param in group["params"]:
                         lr     = group["lr"]
                         param.requires_grad = False
-                        param += np.sqrt(2 * lr) * torch.randn(param.shape)
+                        param += np.sqrt(2 * lr) * torch.randn(param.shape,device = param.device)
                         param.requires_grad = True
                 step_cnt += 1
         return loss
@@ -84,6 +87,7 @@ class BNN_SGDMC(nn.Module, BNN):
             step_cnt += self.keep_every
             print('Step %4d, loss = %6.2f' % (step_cnt, loss))
             self.nns.append(deepcopy(self.nn))
+        self.nn = self.nn.cpu()
 
     def sample(self, num_samples = 1):
         assert(len(self.nns) >= num_samples)
