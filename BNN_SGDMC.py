@@ -95,7 +95,7 @@ class BNN_SGDMC(nn.Module, BNN):
         while(step_cnt < self.steps):
             loss, lr  = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
-            print('Step %4d, loss = %8.2f, lr = %g' % (step_cnt, loss, lr))
+            print('Step %4d, loss = %8.2f, lr = %g' % (step_cnt, loss, lr),flush = True)
             self.nns.append(deepcopy(self.nn))
             self.lrs.append(lr)
         self.nn     = self.nn.cpu()

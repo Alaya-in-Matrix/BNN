@@ -61,6 +61,7 @@ def uci(dataset, split_id):
    conf['steps_burnin'] = int(0.25 * n_epochs * (num_train / conf['batch_size']))
    conf['steps']        = int(0.75 * n_epochs * (num_train / conf['batch_size']))
    conf['keep_every']   = int(conf['steps'] / 55)
+   conf['use_cuda']     = torch.cuda.is_available()
    model = BNN_SGDMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
    model.report()
@@ -89,6 +90,6 @@ for d in ds:
     stat[d] = [f(split_id) for split_id in range(20)]
     # with Pool(num_thread) as p:
     #     stat[d] = p.map(f, list(range(20)))
-    f = open("./results/stat_CDropout.pkl","wb")
+    f = open("./results/stat_SGLD.pkl","wb")
     pickle.dump(stat,f)
     f.close()
