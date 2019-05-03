@@ -53,7 +53,7 @@ class BNN_SGDMC(nn.Module, BNN):
                 nout      = self.nn(bx).squeeze()
                 py        = nout[:, 0]
                 logvar    = nout[:, 1]
-                precision = torch.exp(-1 * logvar)
+                precision = 1 / (1e-8 + torch.exp(logvar))
                 log_lik   = torch.sum(-0.5 * precision * (by - py)**2 - 0.5 * logvar)
                 loss      = -1 * (log_lik * (num_train / bx.shape[0]) + log_prior)
                 opt.zero_grad()
@@ -98,7 +98,7 @@ class BNN_SGDMC(nn.Module, BNN):
             nn_out    = nns[i](X)
             py        = nn_out[:, 0]
             logvar    = nn_out[:, 1]
-            noise_var = torch.exp(logvar) * self.y_std**2
+            noise_var = (1e-8 + torch.exp(logvar)) * self.y_std**2
             pred[i]   = self.y_mean + py  * self.y_std
             prec[i]   = 1 / noise_var
         return pred, prec
