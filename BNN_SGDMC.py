@@ -75,10 +75,11 @@ class BNN_SGDMC(nn.Module, BNN):
                 step_cnt += 1
         return loss, lr
 
-    def calc_gamma(self, max_lr, min_lr, steps):
-        log_gamma = np.log(min_lr / max_lr) / steps
-        print(np.exp(log_gamma))
-        return np.exp(log_gamma)
+    def calc_ab(self, max_lr, min_lr, gamma, steps):
+        ratio = min_lr / max_lr
+        b     = steps  / (np.exp(np.log(ratio) / gamma) - 1)
+        a     = max_lr / b**gamma
+        return a, b
 
     def train(self, X, y):
         if self.use_cuda:
@@ -87,7 +88,11 @@ class BNN_SGDMC(nn.Module, BNN):
         self.normalize_Xy(X, y, self.normalize)
         num_train      = X.shape[0]
         self.opt       = optim.SGD(self.parameters(), lr = self.lr)
-        self.scheduler = optim.lr_scheduler.ExponentialLR(self.opt, gamma = self.calc_gamma(self.lr, 1e-5, self.step_burnin + self.steps))
+
+        gamma          = -0.55
+        a, b           = self.calc_ab(self.lr, 1e-5, gamma, self.step_burnin + self.steps)
+        schu_f         = lambda iter : (a * (b + iter)**gamma) / self.lr
+        self.scheduler = optim.lr_scheduler.LambdaLR(self.opt, schu_f)
         self.loader    = DataLoader(TensorDataset(self.X, self.y), batch_size = self.batch_size, shuffle = True)
         
         _ = self.sgld_steps(self.step_burnin, num_train)
@@ -115,9 +120,6 @@ class BNN_SGDMC(nn.Module, BNN):
         for i in range(num_samples):
             nns.append(self.nns[dist.sample().item()])
         return nns
-        #
-        # assert(len(self.nns) >= num_samples)
-        # return self.nns[:num_samples]
 
     def sample_predict(self, nns, X):
         num_x = X.shape[0]
