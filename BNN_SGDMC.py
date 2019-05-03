@@ -1,3 +1,4 @@
+import sys, os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -15,7 +16,7 @@ class NoisyNN(NN):
     
     def forward(self, input):
         out     = self.nn(input)
-        logvars = self.logvar * out.new_ones(out.shape)
+        logvars = torch.clamp(self.logvar, max = 20.) * out.new_ones(out.shape)
         return torch.cat((out, logvars), dim = out.dim() - 1)
 
 
@@ -47,11 +48,12 @@ class BNN_SGDMC(nn.Module, BNN):
             log_prior += -0.5 * torch.pow(p, 2).sum()
         return log_prior
 
-    def sgld_steps(self, num_steps, opt, loader, num_train):
+    def sgld_steps(self, num_steps, num_train):
         step_cnt = 0
         loss     = 0.
+        lr       = 0.
         while(step_cnt < num_steps):
-            for bx, by in loader:
+            for bx, by in self.loader:
                 log_prior = self.log_prior()
                 nout      = self.nn(bx).squeeze()
                 py        = nout[:, 0]
@@ -59,45 +61,62 @@ class BNN_SGDMC(nn.Module, BNN):
                 precision = 1 / (1e-8 + torch.exp(logvar))
                 log_lik   = torch.sum(-0.5 * precision * (by - py)**2 - 0.5 * logvar)
                 loss      = -1 * (log_lik * (num_train / bx.shape[0]) + log_prior)
-                opt.zero_grad()
+                self.opt.zero_grad()
                 loss.backward()
-                opt.step()
+                self.opt.step()
+                self.scheduler.step()
 
-                for group in opt.param_groups: # Gaussian noise injection
+                for group in self.opt.param_groups: # Gaussian noise injection
                     for param in group["params"]:
                         lr     = group["lr"]
                         param.requires_grad = False
                         param += np.sqrt(2 * lr) * torch.randn(param.shape,device = param.device)
                         param.requires_grad = True
                 step_cnt += 1
-        return loss
+        return loss, lr
+
+    def calc_gamma(self, max_lr, min_lr, steps):
+        log_gamma = np.log(min_lr / max_lr) / steps
+        print(np.exp(log_gamma))
+        return np.exp(log_gamma)
 
     def train(self, X, y):
         self.normalize_Xy(X, y, self.normalize)
-        num_train = X.shape[0]
-        opt       = optim.SGD(self.parameters(), lr = self.lr)
-        loader    = DataLoader(TensorDataset(self.X, self.y), batch_size = self.batch_size, shuffle = True)
+        num_train      = X.shape[0]
+        self.opt       = optim.SGD(self.parameters(), lr = self.lr)
+        self.scheduler = optim.lr_scheduler.ExponentialLR(self.opt, gamma = self.calc_gamma(self.lr, 1e-5, self.step_burnin + self.steps))
+        self.loader    = DataLoader(TensorDataset(self.X, self.y), batch_size = self.batch_size, shuffle = True)
         
-        _ = self.sgld_steps(self.step_burnin, opt, loader, num_train)
+        _ = self.sgld_steps(self.step_burnin, num_train)
         
         step_cnt = 0
         self.nns = []
+        self.lrs = []
         while(step_cnt < self.steps):
-            loss      = self.sgld_steps(self.keep_every, opt, loader, num_train)
+            loss, lr  = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
-            print('Step %4d, loss = %6.2f' % (step_cnt, loss))
+            print('Step %4d, loss = %8.2f, lr = %g' % (step_cnt, loss, lr))
             self.nns.append(deepcopy(self.nn))
-        self.nn = self.nn.cpu()
+            self.lrs.append(lr)
+        self.nn     = self.nn.cpu()
+        print("Number of samples: %d" % len(self.nns))
 
     def sample(self, num_samples = 1):
-        assert(len(self.nns) >= num_samples)
-        return self.nns[:num_samples]
+        wprobs = torch.tensor(self.lrs) / torch.tensor(self.lrs).sum()
+        dist   = torch.distributions.Categorical(wprobs)
+        nns    = []
+        for i in range(num_samples):
+            nns.append(self.nns[dist.sample().item()])
+        return nns
+        #
+        # assert(len(self.nns) >= num_samples)
+        # return self.nns[:num_samples]
 
     def sample_predict(self, nns, X):
-        num_x     = X.shape[0]
-        X         = (X - self.x_mean) / self.x_std
-        pred      = torch.zeros(len(nns), num_x)
-        prec = torch.zeros(len(nns), num_x)
+        num_x = X.shape[0]
+        X     = (X - self.x_mean) / self.x_std
+        pred  = torch.zeros(len(nns), num_x)
+        prec  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
             nn_out    = nns[i](X)
             py        = nn_out[:, 0]
