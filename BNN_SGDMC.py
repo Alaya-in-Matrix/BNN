@@ -36,7 +36,7 @@ class BNN_SGDMC(nn.Module, BNN):
         self.use_cuda    = conf.get('use_cuda',False) and torch.cuda.is_available()
         self.nn          = NoisyNN(dim, self.act, self.num_hiddens)
         if self.use_cuda:
-            self.nn = self.nn.cuda()
+            self.cuda()
 
     def log_prior(self):
         """
@@ -81,6 +81,9 @@ class BNN_SGDMC(nn.Module, BNN):
         return np.exp(log_gamma)
 
     def train(self, X, y):
+        if self.use_cuda:
+            X = X.cuda()
+            y = y.cuda()
         self.normalize_Xy(X, y, self.normalize)
         num_train      = X.shape[0]
         self.opt       = optim.SGD(self.parameters(), lr = self.lr)
@@ -96,9 +99,13 @@ class BNN_SGDMC(nn.Module, BNN):
             loss, lr  = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
             print('Step %4d, loss = %8.2f, lr = %g' % (step_cnt, loss, lr),flush = True)
-            self.nns.append(deepcopy(self.nn))
+            self.nns.append(deepcopy(self.nn).cpu())
             self.lrs.append(lr)
         self.nn     = self.nn.cpu()
+        self.x_mean = self.x_mean.cpu()
+        self.x_std  = self.x_std.cpu()
+        self.y_mean = self.y_mean.cpu()
+        self.y_std  = self.y_std.cpu()
         print("Number of samples: %d" % len(self.nns))
 
     def sample(self, num_samples = 1):
