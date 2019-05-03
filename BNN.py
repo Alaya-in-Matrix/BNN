@@ -8,6 +8,7 @@ class BNN(ABC):
         pass
 
     def normalize_Xy(self, X, y, normalize):
+        y = y.squeeze()
         if normalize:
             self.x_mean = X.mean(dim = 0)
             self.x_std  = X.std(dim = 0)
