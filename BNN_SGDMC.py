@@ -8,9 +8,10 @@ from copy import deepcopy
 from util import NN
 from BNN  import BNN
 from torch.utils.data import TensorDataset, DataLoader
+from SGLD import SGLD
 
 class NoisyNN(NN):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], logvar = torch.tensor(0.)):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], logvar = torch.log(torch.tensor(0.1))):
         super(NoisyNN, self).__init__(dim, act, num_hiddens, nout = 1)
         self.logvar = nn.Parameter(logvar)
     
@@ -66,12 +67,9 @@ class BNN_SGDMC(nn.Module, BNN):
                 self.opt.step()
                 self.scheduler.step()
 
-                for group in self.opt.param_groups: # Gaussian noise injection
+                for group in self.opt.param_groups:
                     for param in group["params"]:
                         lr     = group["lr"]
-                        param.requires_grad = False
-                        param += np.sqrt(2 * lr) * torch.randn(param.shape,device = param.device)
-                        param.requires_grad = True
                 step_cnt += 1
         return loss, lr
 
@@ -87,7 +85,7 @@ class BNN_SGDMC(nn.Module, BNN):
             y = y.cuda()
         self.normalize_Xy(X, y, self.normalize)
         num_train      = X.shape[0]
-        self.opt       = optim.SGD(self.parameters(), lr = self.lr)
+        self.opt       = SGLD(self.parameters(), lr = np.array(self.lr, dtype=np.float32))
 
         gamma          = -0.55
         a, b           = self.calc_ab(self.lr, 1e-5, gamma, self.step_burnin + self.steps)
@@ -103,7 +101,7 @@ class BNN_SGDMC(nn.Module, BNN):
         while(step_cnt < self.steps):
             loss, lr  = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
-            print('Step %4d, loss = %8.2f, lr = %g' % (step_cnt, loss, lr),flush = True)
+            print('Step %4d, loss = %8.2f, lr = %g, noise_var = %.2f' % (step_cnt, loss, lr, torch.exp(self.nn.logvar) * self.y_std**2),flush = True)
             self.nns.append(deepcopy(self.nn).cpu())
             self.lrs.append(lr)
         self.nn     = self.nn.cpu()

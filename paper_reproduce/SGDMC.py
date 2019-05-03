@@ -55,9 +55,9 @@ def uci(dataset, split_id):
    print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
    conf = dict()
    num_train = train_x.shape[0]
-   n_epochs *= 100
-   conf['batch_size']   = 128           # XXX: 32, not 128
-   conf['lr']           = 1e-4
+   n_epochs *= 10
+   conf['batch_size']   = 32           # XXX: 32, not 128
+   conf['lr']           = 1e-3
    conf['steps_burnin'] = int(0.25 * n_epochs * (num_train / conf['batch_size']))
    conf['steps']        = int(0.75 * n_epochs * (num_train / conf['batch_size']))
    conf['keep_every']   = int(conf['steps'] / 25)
@@ -65,7 +65,7 @@ def uci(dataset, split_id):
    model = BNN_SGDMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
    model.report()
-   rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=20)
+   rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=1000)
    print('RMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, nll_gaussian, nll), flush = True)
    return rmse, nll_gaussian, nll
 
@@ -80,6 +80,8 @@ ds = [
  , 'wine-quality-red'
  , 'yacht'
 ]
+
+ds = ['concrete']
 
 stat = dict()
 from multiprocessing import Pool
