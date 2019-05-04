@@ -57,8 +57,11 @@ def uci(dataset, split_id):
    n_epochs  *= 100
    conf       = dict()
 
-   conf['batch_size']   = 128           
-   conf['lr']           = 5e-5
+   conf['batch_size'] = 128
+   conf['lr']         = 5e-4
+   conf['min_lr']     = 1e-6
+   conf['wprior']     = 0.5
+   conf['fixed_lr']   = True
 
    conf['steps_burnin'] = int(0.25 * n_epochs * (num_train / conf['batch_size']))
    conf['steps']        = int(0.75 * n_epochs * (num_train / conf['batch_size']))
@@ -69,7 +72,8 @@ def uci(dataset, split_id):
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
    model.report()
    rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=20)
-   print('RMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, nll_gaussian, nll), flush = True)
+   smse                   = rmse**2 / np.mean((test_y - train_y.mean())**2)
+   print('RMSE = %g, smse = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, smse, nll_gaussian, nll), flush = True)
    return rmse, nll_gaussian, nll
 
 ds = [
@@ -84,7 +88,7 @@ ds = [
  , 'yacht'
 ]
 
-ds = ['naval-propulsion-plant']
+ds = ['yacht']
 
 stat = dict()
 from multiprocessing import Pool
