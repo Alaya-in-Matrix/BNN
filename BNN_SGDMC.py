@@ -11,7 +11,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from SGLD import SGLD
 
 class NoisyNN(NN):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], logvar = torch.log(torch.tensor(0.1))):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], logvar = torch.log(torch.tensor(1.))):
         super(NoisyNN, self).__init__(dim, act, num_hiddens, nout = 1)
         self.logvar = nn.Parameter(logvar)
     
