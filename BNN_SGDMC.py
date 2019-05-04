@@ -25,17 +25,17 @@ class BNN_SGDMC(nn.Module, BNN):
     def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], conf = dict()):
         nn.Module.__init__(self)
         BNN.__init__(self)
-        self.dim         = dim
-        self.act         = act
-        self.num_hiddens = num_hiddens
-        self.step_burnin = conf.get('steps_burnin', 10000)
-        self.steps       = conf.get('steps', 10000)
-        self.keep_every  = conf.get('keep_every', 200)
-        self.normalize   = conf.get('normalize',  True)
-        self.batch_size  = conf.get('batch_size', 64)
-        self.lr          = conf.get('lr', 1e-3)
-        self.use_cuda    = conf.get('use_cuda',False) and torch.cuda.is_available()
-        self.nn          = NoisyNN(dim, self.act, self.num_hiddens)
+        self.dim          = dim
+        self.act          = act
+        self.num_hiddens  = num_hiddens
+        self.steps_burnin = conf.get('steps_burnin', 10000)
+        self.steps        = conf.get('steps', 10000)
+        self.keep_every   = conf.get('keep_every', 200)
+        self.normalize    = conf.get('normalize',  True)
+        self.batch_size   = conf.get('batch_size', 64)
+        self.lr           = conf.get('lr', 1e-3)
+        self.use_cuda     = conf.get('use_cuda',False) and torch.cuda.is_available()
+        self.nn           = NoisyNN(dim, self.act, self.num_hiddens)
         if self.use_cuda:
             self.cuda()
 
@@ -88,12 +88,12 @@ class BNN_SGDMC(nn.Module, BNN):
         self.opt       = SGLD(self.parameters(), lr = np.array(self.lr, dtype=np.float32))
 
         gamma          = -0.55
-        a, b           = self.calc_ab(self.lr, 1e-5, gamma, self.step_burnin + self.steps)
+        a, b           = self.calc_ab(self.lr, 1e-5, gamma, self.steps_burnin + self.steps)
         schu_f         = lambda iter : (a * (b + iter)**gamma) / self.lr
         self.scheduler = optim.lr_scheduler.LambdaLR(self.opt, schu_f)
         self.loader    = DataLoader(TensorDataset(self.X, self.y), batch_size = self.batch_size, shuffle = True)
         
-        _ = self.sgld_steps(self.step_burnin, num_train)
+        _ = self.sgld_steps(self.steps_burnin, num_train)
         
         step_cnt = 0
         self.nns = []
