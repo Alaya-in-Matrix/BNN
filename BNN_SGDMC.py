@@ -71,12 +71,13 @@ class BNN_SGDMC(nn.Module, BNN):
                 self.opt.zero_grad()
                 loss.backward()
                 self.opt.step()
-                if not self.fixed_lr:
-                    self.scheduler.step()
+                self.scheduler.step()
 
                 for group in self.opt.param_groups:
                     for param in group["params"]:
                         lr     = group["lr"]
+                # if step_cnt % 100 == 0:
+                #     print('%g %g' % (lr, loss))
                 step_cnt += 1
         return loss, lr
 
@@ -99,7 +100,7 @@ class BNN_SGDMC(nn.Module, BNN):
             a, b           = self.calc_ab(self.lr, self.min_lr, gamma, self.steps_burnin + self.steps)
             schu_f         = lambda iter : (a * (b + iter)**gamma) / self.lr
         else:
-            schu_f         = lambda iter : 1. # constant learning rate
+            schu_f         = lambda iter : 1 # constant learning rate
         self.scheduler = optim.lr_scheduler.LambdaLR(self.opt, schu_f)
         self.loader    = DataLoader(TensorDataset(self.X, self.y), batch_size = self.batch_size, shuffle = True)
         
