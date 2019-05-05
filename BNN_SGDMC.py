@@ -5,22 +5,13 @@ import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
 from copy import deepcopy
-from util import NN
+from util import NN, NoisyNN
 from BNN  import BNN
 from torch.utils.data import TensorDataset, DataLoader
 from pysgmcmc.optimizers.sgld  import SGLD
 from pysgmcmc.optimizers.sghmc import SGHMC
 # from SGLD import SGLD
 
-class NoisyNN(NN):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], logvar = torch.log(torch.tensor(1e-3))):
-        super(NoisyNN, self).__init__(dim, act, num_hiddens, nout = 1)
-        self.logvar = nn.Parameter(logvar)
-    
-    def forward(self, input):
-        out     = self.nn(input)
-        logvars = torch.clamp(self.logvar, max = 20.) * out.new_ones(out.shape)
-        return torch.cat((out, logvars), dim = out.dim() - 1)
 
 
 class BNN_SGDMC(nn.Module, BNN):

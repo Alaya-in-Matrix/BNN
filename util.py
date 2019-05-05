@@ -33,6 +33,16 @@ class NN(nn.Module):
         out = self.nn(x)
         return out
 
+class NoisyNN(NN):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], logvar = torch.log(torch.tensor(1e-3))):
+        super(NoisyNN, self).__init__(dim, act, num_hiddens, nout = 1)
+        self.logvar = nn.Parameter(logvar)
+    
+    def forward(self, input):
+        out     = self.nn(input)
+        logvars = torch.clamp(self.logvar, max = 20.) * out.new_ones(out.shape)
+        return torch.cat((out, logvars), dim = out.dim() - 1)
+
 class StableRelaxedBernoulli(RelaxedBernoulli):
     """
     Numerical stable relaxed Bernoulli distribution
