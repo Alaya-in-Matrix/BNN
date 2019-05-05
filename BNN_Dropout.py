@@ -84,10 +84,10 @@ class BNN_Dropout(BNN):
         return nns
 
     def sample_predict(self, nns, X):
-        num_x     = X.shape[0]
-        X         = (X - self.x_mean) / self.x_std
-        pred      = torch.zeros(len(nns), num_x)
-        prec = torch.zeros(len(nns), num_x)
+        num_x = X.shape[0]
+        X     = (X - self.x_mean) / self.x_std
+        pred  = torch.zeros(len(nns), num_x)
+        prec  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
             nn_out    = nns[i](X)
             py        = nn_out[:, 0]
