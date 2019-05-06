@@ -130,6 +130,7 @@ class BNN_SMC(nn.Module, BNN):
             rmse, nll_g, nll = self.validate(_X, _y)
             tbar.set_description('%d, ESS = %.2f, SGLD steps = %d, NLL = %g, SMSE = %g' % (i, ess, self.sgld_steps, nll, rmse**2 / _y.var()))  
             fid.write('%d, ESS = %.2f, SGLD steps = %d, NLL = %g, SMSE = %g\n' % (i, ess, self.sgld_steps, nll, rmse**2 / _y.var()))  
+            fid.flush()
         fid.close()
 
     def active_train(self, X, y, max_train = 100):
