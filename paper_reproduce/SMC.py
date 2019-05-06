@@ -59,9 +59,9 @@ def uci(dataset, split_id):
 
    conf['batch_size']  = 32
    conf['num_samples'] = 30
-   conf['mcmc_steps']  = 50
-   conf['lr_weight']   = 1e-2
-   conf['lr_noise']    = 1e-5
+   conf['mcmc_steps']  = 100
+   conf['lr_weight']   = 1e-1
+   conf['lr_noise']    = 1e-3
 
    model = BNN_SMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.active_train(torch.FloatTensor(train_x), torch.FloatTensor(train_y), max_train = 100, vx = torch.FloatTensor(test_x), vy = torch.FloatTensor(test_y))
@@ -91,7 +91,7 @@ for d in ds:
     def f(split_id):
         return uci(d, split_id)
 
-    stat[d] = [f(split_id) for split_id in range(20)]
+    stat[d] = [f(split_id) for split_id in range(5)]
     # with Pool(num_thread) as p:
     #     stat[d] = p.map(f, list(range(20)))
     f = open("./results/stat_SMC.pkl","wb")

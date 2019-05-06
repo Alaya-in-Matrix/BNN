@@ -31,7 +31,7 @@ class BNN_SMC(nn.Module, BNN):
         self.lr_noise    = conf.get('lr_noise',     1e-5)
         self.weight_std  = conf.get('weight_std',   1.)
         self.logvar_std  = conf.get('logvar_std',   1.)
-        self.logvar_mean = conf.get('logvar_mean',  -1.)
+        self.logvar_mean = conf.get('logvar_mean',  0.)
         self.X           = None
         self.y           = None
         self.init_nns()
@@ -88,12 +88,14 @@ class BNN_SMC(nn.Module, BNN):
         if not self.X is None:
             bs         = 8 if self.X.shape[0] < self.batch_size else self.batch_size
             loader     = infinite_dataloader(DataLoader(TensorDataset(self.X, self.y), batch_size = bs, shuffle = True))
-            sgld_steps = int(self.mcmc_steps * self.num_samples / ess)
-            tbar = tqdm(self.nns)
+            sgld_steps = self.mcmc_steps
+            tbar       = tqdm(self.nns)
             for nn in tbar:
-                params   = [{'params': nn.logvar, 'lr': self.lr_noise}, {'params': nn.nn.parameters(), 'lr': self.lr_weight}]
-                opt      = SGHMC(params, num_burn_in_steps = 0)
-                # opt      = SGLD(params, num_burn_in_steps = 0)
+                lr_noise  = self.lr_noise  / np.sqrt(self.X.shape[0])
+                lr_weight = self.lr_weight / np.sqrt(self.X.shape[0])
+                params    = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
+                # opt      = SGHMC(params, num_burn_in_steps = 0)
+                opt       = SGLD(params, num_burn_in_steps = 0)
                 # opt      = MySGLD(params)
                 step_cnt = 0
                 for bx, by in loader:
@@ -106,7 +108,7 @@ class BNN_SMC(nn.Module, BNN):
                     step_cnt += 1
                     if step_cnt >= sgld_steps:
                         break
-                tbar.set_description('ESS = %.2f step = %d loss = %.2f logvar = %.2f' % (ess, sgld_steps, loss, nn.logvar))
+                tbar.set_description('ESS = %.2f step = %d loss = %.2f logvar = %.2f, lr_weight = %.4f, lr_noise = %.4f' % (ess, sgld_steps, loss, nn.logvar, lr_weight, lr_noise))
     
     def train(self, _X, _y):
         pass
