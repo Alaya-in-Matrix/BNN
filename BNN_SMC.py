@@ -86,7 +86,7 @@ class BNN_SMC(nn.Module, BNN):
 
     def sgld_update(self, ess):
         if not self.X is None:
-            bs         = 1 if self.X.shape[0] < self.batch_size else self.batch_size
+            bs         = 8 if self.X.shape[0] < self.batch_size else self.batch_size
             loader     = infinite_dataloader(DataLoader(TensorDataset(self.X, self.y), batch_size = bs, shuffle = True))
             sgld_steps = int(self.mcmc_steps * self.num_samples / ess)
             tbar = tqdm(self.nns)
