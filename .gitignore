@@ -4,4 +4,4 @@
 ref/
 __pycache__/
 .ipynb_checkpoints/
-debug.ipynb
+*.ipynb
