@@ -163,15 +163,17 @@ class BNN_SMC(nn.Module, BNN):
             new_y      = y[id].unsqueeze(0)
             weights, _ = self.reweighting(new_x, new_y)
             ess        = self.ess(weights)
-            self.resample(weights)
-            self.sgld_update(ess)
-            train_idx.append(id)
             if self.X is None:
                 self.X = new_x
                 self.y = new_y
             else:
                 self.X = torch.cat((self.X, new_x))
                 self.y = torch.cat((self.y, new_y))
+            train_idx.append(id)
+
+            self.resample(weights)
+            self.sgld_update(ess)
+
             rmse, nll_g, nll = self.validate(vx, vy)
             tbar.set_description('ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g' % (ess, nll, rmse, rmse**2 / _y.var()))  
             fid.write('%d, ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g\n' % (i, ess, nll, rmse, rmse**2 / _y.var()))  
