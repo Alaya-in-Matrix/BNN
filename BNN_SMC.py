@@ -1,13 +1,14 @@
 import sys, os
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
 from BNN  import BNN
 from util import NoisyNN
 from torch.utils.data import TensorDataset, DataLoader
 from pysgmcmc.data.utils import infinite_dataloader
-# from pysgmcmc.optimizers.sgld import SGLD
+from pysgmcmc.optimizers.sgld import SGLD as pySGLD
 from SGLD import SGLD
 from copy import deepcopy
 from tqdm import tqdm
@@ -25,7 +26,7 @@ class BNN_SMC(nn.Module, BNN):
         self.logvar_prior = conf.get('logvar_prior', 1)
         self.num_samples  = conf.get('num_samples',  50)
         self.normalize    = conf.get('normalize',    True) # XXX: only usefull for offline training
-        self.mcmc_epochs  = conf.get('mcmc_epochs',  40)
+        self.mcmc_steps   = conf.get('mcmc_steps',   40)
         self.X            = None
         self.y            = None
         self.init_nns()
@@ -85,14 +86,15 @@ class BNN_SMC(nn.Module, BNN):
         new_nns  = [deepcopy(self.nns[dist.sample().item()]) for i in range(len(self.nns))]
         self.nns = new_nns
 
-    def sgld_update(self, epoch_factor):
+    def sgld_update(self, ess):
         if not self.X is None:
-            bs              = 4 if self.X.shape[0] < self.batch_size else self.batch_size
-            loader          = infinite_dataloader(DataLoader(TensorDataset(self.X, self.y), batch_size = bs, shuffle = True))
-            self.sgld_steps = int(self.mcmc_epochs * epoch_factor * self.X.shape[0] / bs)
-            for nn in tqdm(self.nns):
-                opt      = SGLD(nn.parameters(), lr = self.lr / (1 + self.X.shape[0]))
-                step_cnt = 0
+            bs         = 1 if self.X.shape[0] < self.batch_size else self.batch_size
+            loader     = infinite_dataloader(DataLoader(TensorDataset(self.X, self.y), batch_size = bs, shuffle = True))
+            sgld_steps = int(self.mcmc_steps * self.num_samples / ess)
+            tbar = tqdm(self.nns)
+            for nn in tbar:
+                opt       = pySGLD(nn.parameters(), lr = self.lr, num_burn_in_steps = 0)
+                step_cnt  = 0
                 for bx, by in loader:
                     log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
                     log_prior = self.log_prior(nn)
@@ -101,56 +103,80 @@ class BNN_SMC(nn.Module, BNN):
                     loss.backward()
                     opt.step()
                     step_cnt += 1
-                    if step_cnt >= self.sgld_steps:
+                    if step_cnt >= sgld_steps:
                         break
+                tbar.set_description('ESS = %.2f step = %d lr = %.6f, loss = %.2f logvar = %.2f' % (ess, sgld_steps, self.lr, loss, nn.logvar))
     
     def train(self, _X, _y):
+        pass
+    #     self.normalize_Xy(_X, _y, self.normalize)
+    #     X               = self.X.clone()
+    #     y               = self.y.clone()
+    #     self.X          = None
+    #     self.y          = None
+    #     num_train       = X.shape[0]
+    #     tbar            = tqdm(range(num_train))
+    #     fid = open('train.log', 'w')
+    #     for i in tqdm(range(num_train)):
+    #         new_x           = X[i].unsqueeze(0)
+    #         new_y           = y[i].unsqueeze(0)
+    #         weights, _      = self.reweighting(new_x, new_y)
+    #         ess             = self.ess(weights)
+    #         self.resample(weights)
+    #         self.sgld_update(ess)
+    #         if self.X is None:
+    #             self.X = new_x
+    #             self.y = new_y
+    #         else:
+    #             self.X = torch.cat((self.X, new_x))
+    #             self.y = torch.cat((self.y, new_y))
+    #         rmse, nll_g, nll = self.validate(_X, _y)
+    #         tbar.set_description('%d, ESS = %.2f, NLL = %g, SMSE = %g' % (i, ess, nll, rmse**2 / _y.var()))  
+    #         fid.write('%d, ESS = %.2f, NLL = %g, SMSE = %g\n' % (i, ess, nll, rmse**2 / _y.var()))  
+    #         fid.flush()
+    #     fid.close()
+
+    def select_point(self, X, y, train_idxs):
+        var = torch.zeros(y.shape)
+        for i in range(X.shape[0]):
+            preds  = torch.tensor([nn(X[i])[0].squeeze() for nn in self.nns])
+            var[i] = preds.var()
+        var[train_idxs] = -1.
+        return var.argmax().item()
+
+    def active_train(self, _X, _y, max_train = 100, vx = None, vy = None):
         self.normalize_Xy(_X, _y, self.normalize)
         X               = self.X.clone()
         y               = self.y.clone()
         self.X          = None
         self.y          = None
         num_train       = X.shape[0]
-        tbar            = tqdm(range(num_train))
-        self.sgld_steps = 0
-        fid = open('train.log', 'w')
-        for i in tqdm(range(num_train)):
-            new_x           = X[i].unsqueeze(0)
-            new_y           = y[i].unsqueeze(0)
-            weights, _      = self.reweighting(new_x, new_y)
-            ess             = self.ess(weights)
+        tbar            = tqdm(range(min(num_train, max_train)))
+        train_idx       = []
+        fid             = open('train.log', 'w')
+        if vx is None:
+            vx = _X.clone()
+            vy = _y.clone()
+        for i in tbar:
+            id         = self.select_point(X, y, train_idx)
+            new_x      = X[id].unsqueeze(0)
+            new_y      = y[id].unsqueeze(0)
+            weights, _ = self.reweighting(new_x, new_y)
+            ess        = self.ess(weights)
             self.resample(weights)
-            self.sgld_update(self.num_samples / ess)
+            self.sgld_update(ess)
+            train_idx.append(id)
             if self.X is None:
                 self.X = new_x
                 self.y = new_y
             else:
                 self.X = torch.cat((self.X, new_x))
                 self.y = torch.cat((self.y, new_y))
-            rmse, nll_g, nll = self.validate(_X, _y)
-            tbar.set_description('%d, ESS = %.2f, SGLD steps = %d, NLL = %g, SMSE = %g' % (i, ess, self.sgld_steps, nll, rmse**2 / _y.var()))  
-            fid.write('%d, ESS = %.2f, SGLD steps = %d, NLL = %g, SMSE = %g\n' % (i, ess, self.sgld_steps, nll, rmse**2 / _y.var()))  
+            rmse, nll_g, nll = self.validate(vx, vy)
+            tbar.set_description('ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g' % (ess, nll, rmse, rmse**2 / _y.var()))  
+            fid.write('%d, ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g\n' % (i, ess, nll, rmse, rmse**2 / _y.var()))  
             fid.flush()
         fid.close()
-
-    def active_train(self, X, y, max_train = 100):
-        pass
-        # tbar      = tqdm(range(num_train))
-        # for i in tqdm(range(num_train)):
-        #     new_x      = X[i].unsqueeze(0)
-        #     new_y      = y[i].unsqueeze(0)
-        #     weights, _ = self.reweighting(new_x, new_y)
-        #     self.resample(weights)
-        #     self.sgld_update()
-        #     if self.X is None:
-        #         self.X = new_x
-        #         self.y = new_y
-        #     else:
-        #         self.X = torch.cat((self.X, new_x))
-        #         self.y = torch.cat((self.y, new_y))
-        #     rmse, nll_g, nll = self.validate(_X, _y)
-        #     tbar.set_description('%d, ESS = %.2f, NLL = %g, SMSE = %g' % (i, self.ess(weights), nll, rmse**2 / _y.var()))  
-
 
     def sample(self, num_samples = 1):
         assert(num_samples <= len(self.nns))
