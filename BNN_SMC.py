@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
 from BNN  import BNN
-from util import NoisyNN
+from util import *
 from torch.utils.data import TensorDataset, DataLoader
 from pysgmcmc.data.utils import infinite_dataloader
 from pysgmcmc.optimizers.sgld  import SGLD
@@ -30,7 +30,7 @@ class BNN_SMC(nn.Module, BNN):
         self.lr_weight   = conf.get('lr_weight',    1e-3)
         self.lr_noise    = conf.get('lr_noise',     1e-5)
         self.weight_std  = conf.get('weight_std',   1.)
-        self.logvar_std  = conf.get('logvar_std',   1.)
+        self.logvar_std  = conf.get('logvar_std',   10.)
         self.logvar_mean = conf.get('logvar_mean',  0.)
         self.X           = None
         self.y           = None
@@ -55,10 +55,7 @@ class BNN_SMC(nn.Module, BNN):
 
     def log_lik(self, net, x, y):
         nn_out    = net(x)
-        py        = nn_out[:, 0]
-        logvar    = nn_out[:, 1]
-        precision = 1 / (torch.exp(logvar) + 1e-16)
-        log_lik   = -0.5 * precision * (py - y.squeeze())**2 - 0.5 * logvar
+        log_lik   = stable_nn_lik(nn_out, y.squeeze())
         return log_lik.sum()
     
     def reweighting(self, new_x, new_y):
@@ -196,12 +193,12 @@ class BNN_SMC(nn.Module, BNN):
             nn_out    = nns[i](X)
             py        = nn_out[:, 0]
             logvar    = nn_out[:, 1]
-            noise_var = (1e-8 + torch.exp(logvar)) * self.y_std**2
+            noise_var = stable_noise_var(logvar) * self.y_std**2
             pred[i]   = self.y_mean + py  * self.y_std
             prec[i]   = 1 / noise_var
         return pred, prec
 
     def report(self):
-        noise_vars = torch.tensor([nn.logvar.exp() for nn in self.nns]).mean()
+        noise_vars = torch.tensor([stable_noise_var(nn.logvar) for nn in self.nns]).mean()
         print(self.nns[0])
         print("Number of samples: %d" % len(self.nns))

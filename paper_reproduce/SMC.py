@@ -61,10 +61,10 @@ def uci(dataset, split_id):
    conf['num_samples'] = 30
    conf['mcmc_steps']  = 100
    conf['lr_weight']   = 1e-1
-   conf['lr_noise']    = 1e-3
+   conf['lr_noise']    = 1e-2
 
    model = BNN_SMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
-   model.active_train(torch.FloatTensor(train_x), torch.FloatTensor(train_y), max_train = 100, vx = torch.FloatTensor(test_x), vy = torch.FloatTensor(test_y))
+   model.active_train(torch.FloatTensor(train_x), torch.FloatTensor(train_y), max_train = 200, vx = torch.FloatTensor(test_x), vy = torch.FloatTensor(test_y))
    model.report()
    rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=20)
    smse                   = rmse**2 / np.mean((test_y - train_y.mean())**2)
@@ -91,7 +91,7 @@ for d in ds:
     def f(split_id):
         return uci(d, split_id)
 
-    stat[d] = [f(split_id) for split_id in range(5)]
+    stat[d] = [f(split_id) for split_id in range(1)]
     # with Pool(num_thread) as p:
     #     stat[d] = p.map(f, list(range(20)))
     f = open("./results/stat_SMC.pkl","wb")
