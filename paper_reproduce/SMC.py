@@ -58,9 +58,9 @@ def uci(dataset, split_id):
    conf       = dict()
 
    conf['batch_size'] = 32
-   conf['lr']         = 3e-3
+   conf['lr']         = 1e-1
    conf['wprior']     = 1.
-   conf['mcmc_steps'] = 100
+   conf['mcmc_steps'] = 40
 
    model = BNN_SMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
@@ -93,6 +93,6 @@ for d in ds:
     stat[d] = [f(split_id) for split_id in range(20)]
     # with Pool(num_thread) as p:
     #     stat[d] = p.map(f, list(range(20)))
-    f = open("./results/stat_SGLD.pkl","wb")
+    f = open("./results/stat_SMC.pkl","wb")
     pickle.dump(stat,f)
     f.close()
