@@ -57,9 +57,10 @@ def uci(dataset, split_id):
    n_epochs  *= 100
    conf       = dict()
 
-   conf['batch_size'] = 32
-   conf['lr']         = 3e-3
-   conf['mcmc_steps'] = 50
+   conf['batch_size']  = 32
+   conf['lr']          = 3e-5
+   conf['num_samples'] = 30
+   conf['mcmc_steps']  = 30
 
    model = BNN_SMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
    model.active_train(torch.FloatTensor(train_x), torch.FloatTensor(train_y), max_train = 100, vx = torch.FloatTensor(test_x), vy = torch.FloatTensor(test_y))
