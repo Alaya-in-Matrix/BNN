@@ -10,8 +10,7 @@ from BNN  import BNN
 from torch.utils.data import TensorDataset, DataLoader
 from pysgmcmc.optimizers.sgld  import SGLD
 from pysgmcmc.optimizers.sghmc import SGHMC
-# from SGLD import SGLD
-
+from SGLD import SGLD as MySGLD
 
 
 class BNN_SGDMC(nn.Module, BNN):
@@ -26,30 +25,24 @@ class BNN_SGDMC(nn.Module, BNN):
         self.keep_every   = conf.get('keep_every',   100)
         self.normalize    = conf.get('normalize',    True)
         self.batch_size   = conf.get('batch_size',   32)
-        self.lr           = conf.get('lr',           1e-3)
-        self.min_lr       = conf.get('min_lr',       self.lr / 100) # only used when fixed_lr is False
-        self.fixed_lr     = conf.get('fixed_lr',     True)
-        self.wprior       = conf.get('wprior',       1.)
-        self.logvar_prior = conf.get('logvar_prior', 0.1)
-        self.use_cuda     = conf.get('use_cuda',False) and torch.cuda.is_available()
+
+        self.lr_weight    = conf.get('lr_weight',    1e-3)
+        self.lr_noise     = conf.get('lr_noise',     1e-5)
+        self.weight_std   = conf.get('weight_std',   1.)
+        self.logvar_std   = conf.get('logvar_std',   1.)
+        self.logvar_mean  = conf.get('logvar_mean',  -1)
+
         self.nn           = NoisyNN(dim, self.act, self.num_hiddens)
-        if self.use_cuda:
-            self.cuda()
 
     def log_prior(self):
-        """
-        log(noise_var) \sim N(0, 1)
-        w              \sim N(0, 1)
-        """
-        log_prior = -0.5 * (self.nn.logvar**2 / self.logvar_prior**2)
+        log_prior = -0.5 * torch.pow((self.nn.logvar - self.logvar_mean) / self.logvar_std, 2)
         for p in self.nn.nn.parameters():
-            log_prior += -0.5 * (p**2 / self.wprior**2).sum()
+            log_prior += -0.5 * (p**2 / self.weight_std**2).sum()
         return log_prior
 
     def sgld_steps(self, num_steps, num_train):
         step_cnt = 0
         loss     = 0.
-        lr       = 0.
         while(step_cnt < num_steps):
             for bx, by in self.loader:
                 log_prior = self.log_prior()
@@ -57,43 +50,21 @@ class BNN_SGDMC(nn.Module, BNN):
                 py        = nout[:, 0]
                 logvar    = nout[:, 1]
                 precision = 1 / (1e-8 + torch.exp(logvar))
-                log_lik   = torch.sum(-0.5 * precision * (by - py)**2 - 0.5 * logvar)
+                log_lik   = torch.sum(-0.5 * precision * (by.squeeze() - py)**2 - 0.5 * logvar)
                 loss      = -1 * (log_lik * (num_train / bx.shape[0]) + log_prior)
                 self.opt.zero_grad()
                 loss.backward()
                 self.opt.step()
-                self.scheduler.step()
-
-                for group in self.opt.param_groups:
-                    for param in group["params"]:
-                        lr     = group["lr"]
-                # if step_cnt % 100 == 0:
-                #     print('%g %g' % (lr, loss))
                 step_cnt += 1
-        return loss, lr
-
-    def calc_ab(self, max_lr, min_lr, gamma, steps):
-        ratio = min_lr / max_lr
-        b     = steps  / (np.exp(np.log(ratio) / gamma) - 1)
-        a     = max_lr / b**gamma
-        return a, b
+        return loss
 
     def train(self, X, y):
-        if self.use_cuda:
-            X = X.cuda()
-            y = y.cuda()
         self.normalize_Xy(X, y, self.normalize)
         num_train      = X.shape[0]
-        self.opt       = SGLD(self.parameters(), lr = np.array(self.lr, dtype=np.float32), num_burn_in_steps = self.steps_burnin)
-
-        if not self.fixed_lr:
-            gamma          = -0.55
-            a, b           = self.calc_ab(self.lr, self.min_lr, gamma, self.steps_burnin + self.steps)
-            schu_f         = lambda iter : (a * (b + iter)**gamma) / self.lr
-        else:
-            schu_f         = lambda iter : 1 # constant learning rate
-        self.scheduler = optim.lr_scheduler.LambdaLR(self.opt, schu_f)
-        self.loader    = DataLoader(TensorDataset(self.X, self.y), batch_size = self.batch_size, shuffle = True)
+        params      = [{'params': self.nn.nn.parameters(), 'lr': self.lr_weight}, {'params': self.nn.logvar, 'lr': self.lr_noise}]
+        self.opt    = SGLD(params, num_burn_in_steps = 0)
+        # self.opt    = MySGLD(params)
+        self.loader = DataLoader(TensorDataset(self.X, self.y), batch_size = self.batch_size, shuffle = True)
         
         _ = self.sgld_steps(self.steps_burnin, num_train)
         
@@ -101,25 +72,15 @@ class BNN_SGDMC(nn.Module, BNN):
         self.nns = []
         self.lrs = []
         while(step_cnt < self.steps):
-            loss, lr  = self.sgld_steps(self.keep_every, num_train)
+            loss      = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
-            print('Step %4d, loss = %8.2f, lr = %g, noise_var = %.2f' % (step_cnt, loss, lr, torch.exp(self.nn.logvar) * self.y_std**2),flush = True)
-            self.nns.append(deepcopy(self.nn).cpu())
-            self.lrs.append(lr)
-        self.nn     = self.nn.cpu()
-        self.x_mean = self.x_mean.cpu()
-        self.x_std  = self.x_std.cpu()
-        self.y_mean = self.y_mean.cpu()
-        self.y_std  = self.y_std.cpu()
-        print("Number of samples: %d" % len(self.nns))
+            print('Step %4d, loss = %8.2f, noise_var = %.2f' % (step_cnt, loss, torch.exp(self.nn.logvar) * self.y_std**2),flush = True)
+            self.nns.append(deepcopy(self.nn))
+        print('Number of samples: %d' % len(self.nns))
 
     def sample(self, num_samples = 1):
-        wprobs = torch.tensor(self.lrs) / torch.tensor(self.lrs).sum()
-        dist   = torch.distributions.Categorical(wprobs)
-        nns    = []
-        for i in range(num_samples):
-            nns.append(self.nns[dist.sample().item()])
-        return nns
+        assert(num_samples <= len(self.nns))
+        return self.nns[:num_samples]
 
     def sample_predict(self, nns, X):
         num_x = X.shape[0]

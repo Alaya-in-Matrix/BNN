@@ -55,13 +55,14 @@ def uci(dataset, split_id):
    print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
    num_train  = train_x.shape[0]
    n_epochs  *= 100
-   conf       = dict()
-
+   conf               = dict()
    conf['batch_size'] = 128
-   conf['lr']         = 5e-4
-   conf['min_lr']     = 1e-6
-   conf['wprior']     = 0.5
-   conf['fixed_lr']   = True
+
+   conf['lr_weight']   = 3e-5
+   conf['lr_noise']    = 1e-2
+   conf['weight_std']  = 1.
+   conf['logvar_std']  = 1.
+   conf['logvar_mean'] = -1.
 
    conf['steps_burnin'] = int(0.25 * n_epochs * (num_train / conf['batch_size']))
    conf['steps']        = int(0.75 * n_epochs * (num_train / conf['batch_size']))
@@ -88,7 +89,7 @@ ds = [
  , 'yacht'
 ]
 
-ds = ['yacht']
+ds = ['bostonHousing']
 
 stat = dict()
 from multiprocessing import Pool
