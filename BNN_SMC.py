@@ -8,8 +8,9 @@ from BNN  import BNN
 from util import NoisyNN
 from torch.utils.data import TensorDataset, DataLoader
 from pysgmcmc.data.utils import infinite_dataloader
-from pysgmcmc.optimizers.sgld import SGLD as pySGLD
-from SGLD import SGLD
+from pysgmcmc.optimizers.sgld  import SGLD
+from pysgmcmc.optimizers.sghmc import SGHMC
+from SGLD import SGLD as MySGLD
 from copy import deepcopy
 from tqdm import tqdm
 
@@ -21,35 +22,35 @@ class BNN_SMC(nn.Module, BNN):
         self.act          = act
         self.num_hiddens  = num_hiddens
         self.batch_size   = conf.get('batch_size',   32)
-        self.lr           = conf.get('lr',           1e-3)
-        self.wprior       = conf.get('wprior',       1.)
-        self.logvar_prior = conf.get('logvar_prior', 1)
         self.num_samples  = conf.get('num_samples',  50)
         self.normalize    = conf.get('normalize',    True) # XXX: only usefull for offline training
         self.mcmc_steps   = conf.get('mcmc_steps',   40)
-        self.X            = None
-        self.y            = None
+
+        # Hyperparameters
+        self.lr_weight   = conf.get('lr_weight',    1e-3)
+        self.lr_noise    = conf.get('lr_noise',     1e-5)
+        self.weight_std  = conf.get('weight_std',   1.)
+        self.logvar_std  = conf.get('logvar_std',   1.)
+        self.logvar_mean = conf.get('logvar_mean',  -1.)
+        self.X           = None
+        self.y           = None
         self.init_nns()
     
     def init_nns(self):
         self.nns = []
         for i in range(self.num_samples):
             net = NoisyNN(self.dim, self.act, self.num_hiddens)
-            net.logvar.data = self.logvar_prior * torch.randn(1)
+            net.logvar.data = self.logvar_std * torch.randn(1) + self.logvar_mean
             for layer in net.nn:
                 if isinstance(layer, nn.Linear):
-                    layer.weight.data = self.wprior * torch.randn(layer.weight.shape)
+                    layer.weight.data = self.weight_std * torch.randn(layer.weight.shape)
                     layer.bias.data   = torch.zeros(layer.bias.shape)
             self.nns.append(net)
 
     def log_prior(self, nn):
-        """
-        log(noise_var) \sim N(0, 1)
-        w              \sim N(0, 1)
-        """
-        log_prior = -0.5 * (nn.logvar**2 / self.logvar_prior**2)
+        log_prior = -0.5 * torch.pow((nn.logvar - self.logvar_mean) / self.logvar_std, 2)
         for p in nn.nn.parameters():
-            log_prior += -0.5 * (p**2 / self.wprior**2).sum()
+            log_prior += -0.5 * (p**2 / self.weight_std**2).sum()
         return log_prior
 
     def log_lik(self, net, x, y):
@@ -60,9 +61,6 @@ class BNN_SMC(nn.Module, BNN):
         log_lik   = -0.5 * precision * (py - y.squeeze())**2 - 0.5 * logvar
         return log_lik.sum()
     
-    def posterior(self, net, x, y):
-        return self.log_lik(net, x, y) + self.log_prior(net)
-
     def reweighting(self, new_x, new_y):
         """
         Generate weight according to the likelihood of (new_x, new_y)
@@ -71,7 +69,7 @@ class BNN_SMC(nn.Module, BNN):
         """
         log_lik = torch.tensor([self.log_lik(nn, new_x, new_y) for nn in self.nns])
         weights = torch.exp(log_lik - log_lik.max())
-        weights = weights / weights.sum()
+        weights = torch.clamp(weights / weights.sum(), min = 0., max = 1.)
         return weights, log_lik
 
     def ess(self, weights):
@@ -93,8 +91,11 @@ class BNN_SMC(nn.Module, BNN):
             sgld_steps = int(self.mcmc_steps * self.num_samples / ess)
             tbar = tqdm(self.nns)
             for nn in tbar:
-                opt       = pySGLD(nn.parameters(), lr = self.lr, num_burn_in_steps = 0)
-                step_cnt  = 0
+                params   = [{'params': nn.logvar, 'lr': self.lr_noise}, {'params': nn.nn.parameters(), 'lr': self.lr_weight}]
+                opt      = SGHMC(params, num_burn_in_steps = 0)
+                # opt      = SGLD(params, num_burn_in_steps = 0)
+                # opt      = MySGLD(params)
+                step_cnt = 0
                 for bx, by in loader:
                     log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
                     log_prior = self.log_prior(nn)
@@ -105,7 +106,7 @@ class BNN_SMC(nn.Module, BNN):
                     step_cnt += 1
                     if step_cnt >= sgld_steps:
                         break
-                tbar.set_description('ESS = %.2f step = %d lr = %.6f, loss = %.2f logvar = %.2f' % (ess, sgld_steps, self.lr, loss, nn.logvar))
+                tbar.set_description('ESS = %.2f step = %d loss = %.2f logvar = %.2f' % (ess, sgld_steps, loss, nn.logvar))
     
     def train(self, _X, _y):
         pass
