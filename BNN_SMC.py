@@ -96,21 +96,40 @@ class BNN_SMC(nn.Module, BNN):
         sgld_steps = self.mcmc_steps
         lr_noise   = self.lr_noise
         lr_weight  = self.lr_weight
-        tbar       = tqdm(self.nns)
-        for nn in tbar:
-            params   = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
-            opt      = SGLD(params, num_burn_in_steps = 0)
-            step_cnt = 0
-            for bx, by in loader:
-                log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
-                log_prior = self.log_prior(nn)
-                loss      = -1 * log_lik - log_prior
-                opt.zero_grad()
-                loss.backward()
-                opt.step()
-                step_cnt += 1
-                if step_cnt >= sgld_steps:
+        nn         = deepcopy(self.nns[0])
+        params     = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
+        opt        = SGLD(params, num_burn_in_steps = 2000)
+        step_cnt   = 0
+        burn_in    = 2500
+        keep_every = 50
+        self.nns   = []
+        for bx, by in loader:
+            log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
+            log_prior = self.log_prior(nn)
+            loss      = -1 * log_lik - log_prior
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            step_cnt += 1
+            if step_cnt > burn_in:
+                if (step_cnt - burn_in) % keep_every == 0:
+                    self.nns.append(deepcopy(nn))
+                if step_cnt > burn_in + self.num_samples * keep_every:
                     break
+        # for nn in tbar:
+        #     params   = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
+        #     opt      = SGLD(params, num_burn_in_steps = 0)
+        #     step_cnt = 0
+        #     for bx, by in loader:
+        #         log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
+        #         log_prior = self.log_prior(nn)
+        #         loss      = -1 * log_lik - log_prior
+        #         opt.zero_grad()
+        #         loss.backward()
+        #         opt.step()
+        #         step_cnt += 1
+        #         if step_cnt >= sgld_steps:
+        #             break
 
     def train(self, _X, _y):
         pass
