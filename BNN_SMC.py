@@ -91,8 +91,8 @@ class BNN_SMC(nn.Module, BNN):
             sgld_steps = self.mcmc_steps
             tbar       = tqdm(self.nns)
             for nn in tbar:
-                lr_noise  = self.lr_noise  / np.sqrt(self.X.shape[0])
-                lr_weight = self.lr_weight / np.sqrt(self.X.shape[0])
+                lr_noise  = self.lr_noise  
+                lr_weight = self.lr_weight 
                 params    = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
                 # opt      = SGHMC(params, num_burn_in_steps = 0)
                 opt       = SGLD(params, num_burn_in_steps = 0)
