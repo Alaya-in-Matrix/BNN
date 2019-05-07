@@ -84,6 +84,6 @@ for d in ds:
         return uci(d, split_id)
     with Pool(num_thread) as p:
         stat[d] = p.map(f, list(range(20)))
-    f = open("./results/stat_BBB.pkl","wb")
+    f = open("./results/stat_Dropout.pkl","wb")
     pickle.dump(stat,f)
     f.close()
