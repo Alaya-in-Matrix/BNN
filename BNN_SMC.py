@@ -13,18 +13,21 @@ from pysgmcmc.optimizers.sghmc import SGHMC
 from SGLD import SGLD as MySGLD
 from copy import deepcopy
 from tqdm import tqdm
+from joblib import Parallel, delayed
+from torch.multiprocessing import Pool
 
 class BNN_SMC(nn.Module, BNN):
     def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], conf = dict()):
         nn.Module.__init__(self)
         BNN.__init__(self)
-        self.dim          = dim
-        self.act          = act
-        self.num_hiddens  = num_hiddens
-        self.batch_size   = conf.get('batch_size',   32)
-        self.num_samples  = conf.get('num_samples',  50)
-        self.normalize    = conf.get('normalize',    True) # XXX: only usefull for offline training
-        self.mcmc_steps   = conf.get('mcmc_steps',   40)
+        self.dim         = dim
+        self.act         = act
+        self.num_hiddens = num_hiddens
+        self.batch_size  = conf.get('batch_size',   32)
+        self.num_samples = conf.get('num_samples',  50)
+        self.normalize   = conf.get('normalize',    True) # XXX: only usefull for offline training
+        self.mcmc_steps  = conf.get('mcmc_steps',   40)
+        self.num_threads = conf.get('num_threads',  1)
 
         # Hyperparameters
         self.lr_weight   = conf.get('lr_weight',    1e-3)
@@ -84,61 +87,34 @@ class BNN_SMC(nn.Module, BNN):
         new_nns  = [deepcopy(self.nns[dist.sample().item()]) for i in range(len(self.nns))]
         self.nns = new_nns
 
+    def single_nn_update(self, nn):
+        bs         = 8 if self.X.shape[0] < self.batch_size else self.batch_size
+        loader     = infinite_dataloader(DataLoader(TensorDataset(self.X, self.y), batch_size = bs, shuffle = True))
+        sgld_steps = self.mcmc_steps
+        lr_noise   = self.lr_noise
+        lr_weight  = self.lr_weight
+        params     = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
+        opt        = SGLD(params, num_burn_in_steps = 0)
+        step_cnt = 0
+        for bx, by in loader:
+            log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
+            log_prior = self.log_prior(nn)
+            loss      = -1 * log_lik - log_prior
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            step_cnt += 1
+            if step_cnt >= sgld_steps:
+                break
+        return nn
+
     def sgld_update(self, ess):
         if not self.X is None:
-            bs         = 8 if self.X.shape[0] < self.batch_size else self.batch_size
-            loader     = infinite_dataloader(DataLoader(TensorDataset(self.X, self.y), batch_size = bs, shuffle = True))
-            sgld_steps = self.mcmc_steps
-            tbar       = tqdm(self.nns)
-            for nn in tbar:
-                lr_noise  = self.lr_noise  
-                lr_weight = self.lr_weight 
-                params    = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
-                # opt      = SGHMC(params, num_burn_in_steps = 0)
-                opt       = SGLD(params, num_burn_in_steps = 0)
-                # opt      = MySGLD(params)
-                step_cnt = 0
-                for bx, by in loader:
-                    log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
-                    log_prior = self.log_prior(nn)
-                    loss      = -1 * log_lik - log_prior
-                    opt.zero_grad()
-                    loss.backward()
-                    opt.step()
-                    step_cnt += 1
-                    if step_cnt >= sgld_steps:
-                        break
-                noise_var = stable_noise_var(nn.logvar) * self.y_std**2
-                tbar.set_description('ESS = %.2f step = %d loss = %.2f logvar = %.2f, lr_weight = %.4f, lr_noise = %.4f' % (ess, sgld_steps, loss, noise_var, lr_weight, lr_noise))
+            with Pool(self.num_threads) as p:
+                self.nns = p.map(self.single_nn_update, self.nns)
     
     def train(self, _X, _y):
         pass
-    #     self.normalize_Xy(_X, _y, self.normalize)
-    #     X               = self.X.clone()
-    #     y               = self.y.clone()
-    #     self.X          = None
-    #     self.y          = None
-    #     num_train       = X.shape[0]
-    #     tbar            = tqdm(range(num_train))
-    #     fid = open('train.log', 'w')
-    #     for i in tqdm(range(num_train)):
-    #         new_x           = X[i].unsqueeze(0)
-    #         new_y           = y[i].unsqueeze(0)
-    #         weights, _      = self.reweighting(new_x, new_y)
-    #         ess             = self.ess(weights)
-    #         self.resample(weights)
-    #         self.sgld_update(ess)
-    #         if self.X is None:
-    #             self.X = new_x
-    #             self.y = new_y
-    #         else:
-    #             self.X = torch.cat((self.X, new_x))
-    #             self.y = torch.cat((self.y, new_y))
-    #         rmse, nll_g, nll = self.validate(_X, _y)
-    #         tbar.set_description('%d, ESS = %.2f, NLL = %g, SMSE = %g' % (i, ess, nll, rmse**2 / _y.var()))  
-    #         fid.write('%d, ESS = %.2f, NLL = %g, SMSE = %g\n' % (i, ess, nll, rmse**2 / _y.var()))  
-    #         fid.flush()
-    #     fid.close()
 
     def select_point(self, X, y, train_idxs):
         var = torch.zeros(y.shape)
