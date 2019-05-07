@@ -60,11 +60,11 @@ def uci(dataset, split_id):
    conf['batch_size']  = 32
    conf['num_samples'] = 30
    conf['mcmc_steps']  = 100
-   conf['lr_weight']   = 1e-1
+   conf['lr_weight']   = 3e-2
    conf['lr_noise']    = 1e-2
 
    model = BNN_SMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
-   model.active_train(torch.FloatTensor(train_x), torch.FloatTensor(train_y), max_train = 200, vx = torch.FloatTensor(test_x), vy = torch.FloatTensor(test_y))
+   model.active_train(torch.FloatTensor(train_x), torch.FloatTensor(train_y), max_train = 1000, vx = torch.FloatTensor(test_x), vy = torch.FloatTensor(test_y))
    model.report()
    rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=20)
    smse                   = rmse**2 / np.mean((test_y - train_y.mean())**2)

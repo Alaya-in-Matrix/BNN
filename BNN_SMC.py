@@ -105,7 +105,8 @@ class BNN_SMC(nn.Module, BNN):
                     step_cnt += 1
                     if step_cnt >= sgld_steps:
                         break
-                tbar.set_description('ESS = %.2f step = %d loss = %.2f logvar = %.2f, lr_weight = %.4f, lr_noise = %.4f' % (ess, sgld_steps, loss, nn.logvar, lr_weight, lr_noise))
+                noise_var = stable_noise_var(nn.logvar) * self.y_std**2
+                tbar.set_description('ESS = %.2f step = %d loss = %.2f logvar = %.2f, lr_weight = %.4f, lr_noise = %.4f' % (ess, sgld_steps, loss, noise_var, lr_weight, lr_noise))
     
     def train(self, _X, _y):
         pass
