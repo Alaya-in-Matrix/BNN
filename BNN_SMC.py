@@ -117,11 +117,10 @@ class BNN_SMC(nn.Module, BNN):
         pass
 
     def select_point(self, X, y, train_idxs):
-        var = torch.zeros(y.shape)
-        for i in range(X.shape[0]):
-            preds  = torch.tensor([nn(X[i])[0].squeeze() for nn in self.nns])
-            var[i] = preds.var()
-        var[train_idxs] = -1.
+        preds = torch.zeros(self.num_samples, X.shape[0])
+        for i in range(self.num_samples):
+            preds[i] = self.nns[i](X)[:, 0]
+        var = preds.var(dim = 0)
         return var.argmax().item()
 
     def active_train(self, _X, _y, max_train = 100, vx = None, vy = None):
