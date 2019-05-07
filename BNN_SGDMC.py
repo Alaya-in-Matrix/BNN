@@ -40,7 +40,7 @@ class BNN_SGDMC(nn.Module, BNN):
             if "weight" in n:
                 log_prior += -0.5 * (p**2 / self.weight_std**2).sum()
             elif "bias" in n: # do not regularize the bias
-                log_prior += -0.5 * (p**2 / (100*self.weight_std)**2).sum()
+                log_prior += -0.5 * (p**2 / (1000)**2).sum()
         return log_prior
 
     def sgld_steps(self, num_steps, num_train):
