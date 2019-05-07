@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
 from copy import deepcopy
-from util import NN, NoisyNN
+from util import *
 from BNN  import BNN
 from torch.utils.data import TensorDataset, DataLoader
 from pysgmcmc.optimizers.sgld  import SGLD
@@ -36,8 +36,11 @@ class BNN_SGDMC(nn.Module, BNN):
 
     def log_prior(self):
         log_prior = -0.5 * torch.pow((self.nn.logvar - self.logvar_mean) / self.logvar_std, 2)
-        for p in self.nn.nn.parameters():
-            log_prior += -0.5 * (p**2 / self.weight_std**2).sum()
+        for n, p in self.nn.nn.named_parameters():
+            if "weight" in n:
+                log_prior += -0.5 * (p**2 / self.weight_std**2).sum()
+            elif "bias" in n: # do not regularize the bias
+                log_prior += -0.5 * (p**2 / (100*self.weight_std)**2).sum()
         return log_prior
 
     def sgld_steps(self, num_steps, num_train):
@@ -47,10 +50,7 @@ class BNN_SGDMC(nn.Module, BNN):
             for bx, by in self.loader:
                 log_prior = self.log_prior()
                 nout      = self.nn(bx).squeeze()
-                py        = nout[:, 0]
-                logvar    = nout[:, 1]
-                precision = 1 / (1e-8 + torch.exp(logvar))
-                log_lik   = torch.sum(-0.5 * precision * (by.squeeze() - py)**2 - 0.5 * logvar)
+                log_lik   = stable_nn_lik(nout, by.squeeze()).sum()
                 loss      = -1 * (log_lik * (num_train / bx.shape[0]) + log_prior)
                 self.opt.zero_grad()
                 loss.backward()
@@ -74,7 +74,7 @@ class BNN_SGDMC(nn.Module, BNN):
         while(step_cnt < self.steps):
             loss      = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
-            print('Step %4d, loss = %8.2f, noise_var = %.2f' % (step_cnt, loss, torch.exp(self.nn.logvar) * self.y_std**2),flush = True)
+            print('Step %4d, loss = %8.2f, noise_var = %.2f' % (step_cnt, loss, stable_noise_var(self.nn.logvar) * self.y_std**2),flush = True)
             self.nns.append(deepcopy(self.nn))
         print('Number of samples: %d' % len(self.nns))
 
@@ -91,7 +91,7 @@ class BNN_SGDMC(nn.Module, BNN):
             nn_out    = nns[i](X)
             py        = nn_out[:, 0]
             logvar    = nn_out[:, 1]
-            noise_var = (1e-8 + torch.exp(logvar)) * self.y_std**2
+            noise_var = stable_noise_var(logvar) * self.y_std**2
             pred[i]   = self.y_mean + py  * self.y_std
             prec[i]   = 1 / noise_var
         return pred, prec

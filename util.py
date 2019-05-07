@@ -51,7 +51,7 @@ class StableRelaxedBernoulli(RelaxedBernoulli):
         return clamp_probs(super(StableRelaxedBernoulli, self).rsample(sample_shape))
 
 def stable_noise_var(input):
-    return F.softplus(torch.clamp(input, min = -10.))
+    return F.softplus(torch.clamp(input, min = -35.))
 
 def stable_log_lik(mu, var, y):
     noise_var = stable_noise_var(var)

@@ -49,8 +49,11 @@ class BNN_SMC(nn.Module, BNN):
 
     def log_prior(self, nn):
         log_prior = -0.5 * torch.pow((nn.logvar - self.logvar_mean) / self.logvar_std, 2)
-        for p in nn.nn.parameters():
-            log_prior += -0.5 * (p**2 / self.weight_std**2).sum()
+        for n, p in nn.nn.named_parameters():
+            if "weight" in n:
+                log_prior += -0.5 * (p**2 / self.weight_std**2).sum()
+            elif "bias" in n: # do not regularize the bias
+                log_prior += -0.5 * (p**2 / (100*self.weight_std)**2).sum()
         return log_prior
 
     def log_lik(self, net, x, y):

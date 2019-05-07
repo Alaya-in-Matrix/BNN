@@ -59,11 +59,14 @@ def uci(dataset, split_id):
    conf['batch_size'] = 128
 
    conf['lr_weight']   = 1e-5
-   conf['lr_noise']    = 5e-2
+   conf['lr_noise']    = 1e-3
    conf['weight_std']  = 0.5
    conf['logvar_std']  = 6.
    conf['logvar_mean'] = 0.
 
+   # conf['steps_burnin'] = 2500
+   # conf['steps']        = 2500
+   # conf['keep_every']   = 50
    conf['steps_burnin'] = int(0.25 * n_epochs * (num_train / conf['batch_size']))
    conf['steps']        = int(0.75 * n_epochs * (num_train / conf['batch_size']))
    conf['keep_every']   = int(conf['steps'] / 25)
