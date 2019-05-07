@@ -32,7 +32,7 @@ class BNN_SGDMC(nn.Module, BNN):
         self.logvar_std   = conf.get('logvar_std',   1.)
         self.logvar_mean  = conf.get('logvar_mean',  -1)
 
-        self.nn           = NoisyNN(dim, self.act, self.num_hiddens)
+        self.nn           = NoisyNN(dim, self.act, self.num_hiddens, torch.tensor(0.))
 
     def log_prior(self):
         log_prior = -0.5 * torch.pow((self.nn.logvar - self.logvar_mean) / self.logvar_std, 2)

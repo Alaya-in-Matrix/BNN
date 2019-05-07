@@ -58,21 +58,21 @@ def uci(dataset, split_id):
    conf               = dict()
    conf['batch_size'] = 128
 
-   conf['lr_weight']   = 1e-5
+   conf['lr_weight']   = 1e-3
    conf['lr_noise']    = 1e-3
    conf['weight_std']  = 0.5
    conf['logvar_std']  = 6.
    conf['logvar_mean'] = 0.
 
-   # conf['steps_burnin'] = 2500
-   # conf['steps']        = 2500
-   # conf['keep_every']   = 50
-   conf['steps_burnin'] = int(0.25 * n_epochs * (num_train / conf['batch_size']))
-   conf['steps']        = int(0.75 * n_epochs * (num_train / conf['batch_size']))
-   conf['keep_every']   = int(conf['steps'] / 25)
+   conf['steps_burnin'] = 2500
+   conf['steps']        = 2500
+   conf['keep_every']   = 50
+   # conf['steps_burnin'] = int(0.25 * n_epochs * (num_train / conf['batch_size']))
+   # conf['steps']        = int(0.75 * n_epochs * (num_train / conf['batch_size']))
+   # conf['keep_every']   = int(conf['steps'] / 25)
 
-   conf['use_cuda']     = torch.cuda.is_available()
-   model = BNN_SGDMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
+   conf['use_cuda'] = torch.cuda.is_available()
+   model            = BNN_SGDMC(train_x.shape[1], nn.ReLU(), num_hiddens = [n_hiddens, n_hiddens], conf = conf)
    model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
    model.report()
    rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=20)
@@ -92,7 +92,7 @@ ds = [
  , 'yacht'
 ]
 
-ds = ['bostonHousing']
+ds = ['protein-tertiary-structure']
 
 stat = dict()
 from multiprocessing import Pool
