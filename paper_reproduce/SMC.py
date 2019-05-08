@@ -87,7 +87,7 @@ ds = [
  , 'yacht'
 ]
 
-ds = ['bostonHousing']
+ds = ['protein-tertiary-structure']
 
 stat = dict()
 from multiprocessing import Pool
