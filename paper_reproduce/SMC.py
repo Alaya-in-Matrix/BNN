@@ -58,11 +58,11 @@ def uci(dataset, split_id):
    conf       = dict()
 
    conf['batch_size']  = 32
-   conf['num_samples'] = 30
-   conf['mcmc_steps']  = 100
+   conf['num_samples'] = 50
+   conf['mcmc_steps']  = 10
 
-   conf['lr_weight']   = 5e-5
-   conf['lr_noise']    = 5e-2
+   conf['lr_weight']   = 1e-3
+   conf['lr_noise']    = 1e-1
    conf['weight_std']  = 0.2
    conf['logvar_std']  = 0.4
    conf['logvar_mean'] = -1.5

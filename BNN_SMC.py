@@ -40,7 +40,7 @@ class BNN_SMC(nn.Module, BNN):
         self.init_nns()
     
     def init_nns(self):
-        self.nns = []
+        self.nns = nn.ModuleList([])
         for i in range(self.num_samples):
             net = NoisyNN(self.dim, self.act, self.num_hiddens)
             net.logvar.data = self.logvar_std * torch.randn(1) + self.logvar_mean
@@ -84,49 +84,29 @@ class BNN_SMC(nn.Module, BNN):
         """
         assert(len(weights) == len(self.nns))
         dist     = torch.distributions.Categorical(probs = weights)
-        new_nns  = [deepcopy(self.nns[dist.sample().item()]) for i in range(len(self.nns))]
+        new_nns  = nn.ModuleList([deepcopy(self.nns[dist.sample().item()]) for i in range(len(self.nns))])
         self.nns = new_nns
 
     def sgld_update(self, ess):
         bs         = 8 if self.X.shape[0] < self.batch_size else self.batch_size
         loader     = infinite_dataloader(DataLoader(TensorDataset(self.X, self.y), batch_size = bs, shuffle = True))
         sgld_steps = self.mcmc_steps
-        lr_noise   = self.lr_noise
-        lr_weight  = self.lr_weight
-        nn         = deepcopy(self.nns[0])
-        params     = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
-        opt        = SGLD(params, num_burn_in_steps = 2000)
-        step_cnt   = 0
-        burn_in    = 2500
-        keep_every = 50
-        self.nns   = []
-        for bx, by in loader:
-            log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
-            log_prior = self.log_prior(nn)
-            loss      = -1 * log_lik - log_prior
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-            step_cnt += 1
-            if step_cnt > burn_in:
-                if (step_cnt - burn_in) % keep_every == 0:
-                    self.nns.append(deepcopy(nn))
-                if step_cnt > burn_in + self.num_samples * keep_every:
+        lr_noise   = self.lr_noise   /  np.sqrt(1. + self.X.shape[0])
+        lr_weight  = self.lr_weight  /  np.sqrt(1. + self.X.shape[0])
+        for nn in tqdm(self.nns):
+            params   = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
+            opt      = SGLD(params, num_burn_in_steps = 0)
+            step_cnt = 0
+            for bx, by in loader:
+                log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
+                log_prior = self.log_prior(nn)
+                loss      = -1 * log_lik - log_prior
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+                step_cnt += 1
+                if step_cnt >= sgld_steps:
                     break
-        # for nn in tbar:
-        #     params   = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
-        #     opt      = SGLD(params, num_burn_in_steps = 0)
-        #     step_cnt = 0
-        #     for bx, by in loader:
-        #         log_lik   = self.log_lik(nn, bx, by) * self.X.shape[0] / bx.shape[0]
-        #         log_prior = self.log_prior(nn)
-        #         loss      = -1 * log_lik - log_prior
-        #         opt.zero_grad()
-        #         loss.backward()
-        #         opt.step()
-        #         step_cnt += 1
-        #         if step_cnt >= sgld_steps:
-        #             break
 
     def train(self, _X, _y):
         pass
