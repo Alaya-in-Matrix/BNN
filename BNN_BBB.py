@@ -78,14 +78,18 @@ class BNN_BBB(BNN):
         self.dim         = dim
         self.act         = act
         self.num_hiddens = num_hiddens
-        self.num_epochs  = conf.get('num_epochs',   4000)
+        self.num_epochs  = conf.get('num_epochs',   1000)
         self.batch_size  = conf.get('batch_size',   64)
         self.print_every = conf.get('print_every',  100)
-        self.lr          = conf.get('lr',           1e-2)
         self.normalize   = conf.get('normalize',    True)
-        self.w_prior     = torch.distributions.Normal(torch.zeros(1), torch.ones(1))
+
+        self.lr_weight   = conf.get('lr_weight',    1e-2)
+        self.lr_noise    = conf.get('lr_noise',     1e-2)
+        self.w_std       = conf.get('w_std',        0.5)
+
+        self.w_prior     = torch.distributions.Normal(torch.zeros(1), self.w_std*torch.ones(1))
         self.nn          = BayesianNN(dim, self.act, self.num_hiddens)
-        self.logvar      = nn.Parameter(torch.tensor(0.55))
+        self.logvar      = nn.Parameter(torch.tensor(-2.))
 
     def loss(self, X, y):
         num_x       = X.shape[0]
@@ -113,11 +117,9 @@ class BNN_BBB(BNN):
         param_dict['logvar'] = self.logvar
         param_dict['nn'] = self.nn.parameters()
 
-        dict_logvar = {"params": self.logvar, 'lr': 3e-2}
-        dict_nn     = {"params": self.nn.parameters()}
-        opt         = torch.optim.RMSprop([dict_logvar, dict_nn], lr = self.lr, centered = True)
-        scheduler   = torch.optim.lr_scheduler.StepLR(opt, step_size = int(self.num_epochs) / 4, gamma = 0.5)
-        # opt         = torch.optim.Adam([dict_logvar, dict_nn], lr = self.lr)
+        dict_logvar = {"params": self.logvar,          'lr': self.lr_noise}
+        dict_nn     = {"params": self.nn.parameters(), 'lr': self.lr_weight}
+        opt         = torch.optim.RMSprop([dict_logvar, dict_nn], centered = True)
         for epoch in range(self.num_epochs):
             epoch_kl  = 0.
             epoch_lik = 0.
@@ -130,13 +132,31 @@ class BNN_BBB(BNN):
                 opt.step()
                 epoch_kl  += kl_term
                 epoch_lik += log_lik
-                scheduler.step(loss)
             if ((epoch + 1) % self.print_every == 0):
                 log_lik, kl_term = self.loss(self.X, self.y)
                 print("[Epoch %5d, loss = %8.2f (KL = %8.2f, -log_lik = %8.2f), noise_var = %.2f]" % (epoch + 1, epoch_kl - epoch_lik, epoch_kl, -1 * epoch_lik, stable_noise_var(self.logvar) * self.y_std**2))
 
     def sample(self, num_samples = 1):
-        nns = [self.nn.sample() for i in range(num_samples)]
+        nns    = []
+        ratios = []
+        for i in range(num_samples):
+            net     = self.nn.sample()
+            pred    = net(self.X)
+            log_lik = stable_log_lik(pred, self.logvar, self.y).sum()
+            log_qw  = 0.
+            log_pw  = 0.
+            for layer in self.nn.nn:
+                if isinstance(layer, GaussianLinear):
+                    log_qw += layer.log_prob
+                    log_pw += self.w_prior.log_prob(layer.wb).sum()
+            log_ratio = log_lik + log_pw - log_qw
+            nns.append(net)
+            ratios.append(log_ratio)
+        weights = torch.tensor(ratios)
+        weights = torch.exp(weights - weights.max())
+        weights = weights / weights.sum()
+        ess = 1. / (weights**2).sum()
+        print("Ess is %g/%d" % (ess, num_samples))
         return nns
 
     def sample_predict(self, nns, X):
