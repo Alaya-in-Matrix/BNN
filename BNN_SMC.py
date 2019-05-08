@@ -87,12 +87,12 @@ class BNN_SMC(nn.Module, BNN):
         new_nns  = nn.ModuleList([deepcopy(self.nns[dist.sample().item()]) for i in range(len(self.nns))])
         self.nns = new_nns
 
-    def sgld_update(self, ess):
+    def smc_sgld_update(self):
         bs         = 8 if self.X.shape[0] < self.batch_size else self.batch_size
         loader     = infinite_dataloader(DataLoader(TensorDataset(self.X, self.y), batch_size = bs, shuffle = True))
         sgld_steps = self.mcmc_steps
-        lr_noise   = self.lr_noise   /  np.sqrt(1. + self.X.shape[0])
-        lr_weight  = self.lr_weight  /  np.sqrt(1. + self.X.shape[0])
+        lr_noise   = self.lr_noise   
+        lr_weight  = self.lr_weight  
         for nn in tqdm(self.nns):
             params   = [{'params': nn.logvar, 'lr': lr_noise}, {'params': nn.nn.parameters(), 'lr': lr_weight}]
             opt      = SGLD(params, num_burn_in_steps = 0)
@@ -115,7 +115,8 @@ class BNN_SMC(nn.Module, BNN):
         preds = torch.zeros(self.num_samples, X.shape[0])
         for i in range(self.num_samples):
             preds[i] = self.nns[i](X)[:, 0]
-        var = preds.var(dim = 0)
+        var             = preds.var(dim = 0)
+        var[train_idxs] = -1 * np.inf
         return var.argmax().item()
 
     def active_train(self, _X, _y, max_train = 100, vx = None, vy = None):
@@ -135,7 +136,7 @@ class BNN_SMC(nn.Module, BNN):
             id         = self.select_point(X, y, train_idx)
             new_x      = X[id].unsqueeze(0)
             new_y      = y[id].unsqueeze(0)
-            weights, _ = self.reweighting(new_x, new_y)
+            weights, l = self.reweighting(new_x, new_y)
             ess        = self.ess(weights)
             if self.X is None:
                 self.X = new_x
@@ -146,10 +147,10 @@ class BNN_SMC(nn.Module, BNN):
             train_idx.append(id)
 
             self.resample(weights)
-            self.sgld_update(ess)
+            self.smc_sgld_update()
 
             rmse, nll_g, nll = self.validate(vx, vy)
-            tbar.set_description('ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g' % (ess, nll, rmse, rmse**2 / _y.var()))  
+            tbar.set_description('ID = %d, ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g' % (id, ess, nll, rmse, rmse**2 / _y.var()))  
             fid.write('%d, ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g\n' % (i, ess, nll, rmse, rmse**2 / _y.var()))  
             fid.flush()
         fid.close()
