@@ -87,9 +87,6 @@ class BNN_SMC(nn.Module, BNN):
         new_nns  = [deepcopy(self.nns[dist.sample().item()]) for i in range(len(self.nns))]
         self.nns = new_nns
 
-    def single_nn_update(self, nn):
-        return nn
-
     def sgld_update(self, ess):
         bs         = 8 if self.X.shape[0] < self.batch_size else self.batch_size
         loader     = infinite_dataloader(DataLoader(TensorDataset(self.X, self.y), batch_size = bs, shuffle = True))
