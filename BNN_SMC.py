@@ -28,6 +28,7 @@ class BNN_SMC(nn.Module, BNN):
         self.normalize   = conf.get('normalize',    True) # XXX: only usefull for offline training
         self.mcmc_steps  = conf.get('mcmc_steps',   40)
         self.num_threads = conf.get('num_threads',  1)
+        self.to_resample = conf.get('to_resample',  False)
 
         # Hyperparameters
         self.lr_weight   = conf.get('lr_weight',    1e-3)
@@ -146,7 +147,8 @@ class BNN_SMC(nn.Module, BNN):
                 self.y = torch.cat((self.y, new_y))
             train_idx.append(id)
 
-            self.resample(weights)
+            if self.to_resample:
+                self.resample(weights)
             self.smc_sgld_update()
 
             rmse, nll_g, nll = self.validate(vx, vy)
