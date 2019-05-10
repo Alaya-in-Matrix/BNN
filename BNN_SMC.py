@@ -28,7 +28,7 @@ class BNN_SMC(nn.Module, BNN):
         self.normalize   = conf.get('normalize',    True) # XXX: only usefull for offline training
         self.mcmc_steps  = conf.get('mcmc_steps',   40)
         self.num_threads = conf.get('num_threads',  1)
-        self.to_resample = conf.get('to_resample',  False)
+        self.to_resample = conf.get('to_resample',  True)
 
         # Hyperparameters
         self.lr_weight   = conf.get('lr_weight',    1e-3)

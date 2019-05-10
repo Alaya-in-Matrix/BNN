@@ -58,17 +58,18 @@ def uci(dataset, split_id):
    conf       = dict()
 
    conf['batch_size']  = 32
-   conf['num_samples'] = 50
-   conf['mcmc_steps']  = 10
+   conf['num_samples'] = 500
+   conf['mcmc_steps']  = 1
+   conf['to_resample'] = True
 
    conf['lr_weight']   = 2e-3
-   conf['lr_noise']    = 1e-1
+   conf['lr_noise']    = 1e-2
    conf['weight_std']  = 0.2
    conf['logvar_std']  = 0.4
    conf['logvar_mean'] = -2
 
    model = BNN_SMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
-   model.active_train(torch.FloatTensor(train_x), torch.FloatTensor(train_y), max_train = 1000, vx = torch.FloatTensor(test_x), vy = torch.FloatTensor(test_y))
+   model.active_train(torch.FloatTensor(train_x), torch.FloatTensor(train_y), max_train = 200, vx = torch.FloatTensor(test_x), vy = torch.FloatTensor(test_y))
    model.report()
    rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=20)
    smse                   = rmse**2 / np.mean((test_y - train_y.mean())**2)
@@ -87,7 +88,7 @@ ds = [
  , 'yacht'
 ]
 
-ds = ['protein-tertiary-structure']
+ds = ['bostonHousing']
 
 stat = dict()
 from multiprocessing import Pool
