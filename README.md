@@ -15,3 +15,4 @@ Implemented:
 - Variational continual learning (for online learning)
 - Neural process
 - Stein Variational Gradient Descent
+- Particle mirror descent

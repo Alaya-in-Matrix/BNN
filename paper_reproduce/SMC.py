@@ -60,7 +60,7 @@ def uci(dataset, split_id):
    conf['batch_size']  = 32
    conf['num_samples'] = 500
    conf['mcmc_steps']  = 1
-   conf['to_resample'] = True
+   conf['to_resample'] = False
 
    conf['lr_weight']   = 2e-3
    conf['lr_noise']    = 1e-2
