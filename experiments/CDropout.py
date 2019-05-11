@@ -7,9 +7,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from BNN_SMC import BNN_SMC
 import matplotlib.pyplot as plt
 import pickle
+from BNN_CDropout import BNN_CDropout
+from util import normalize
 
 torch.set_num_threads(1)
 
@@ -26,11 +27,11 @@ def get_data(dataset, split_id):
    ys = data[:,-1]
    n_splits = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_splits.txt", dtype = np.int64)
    if split_id >= n_splits:
-       train_x = None
-       train_y = None
-       test_x  = None
-       test_y = None
-       tau = None
+       train_x  = None
+       train_y  = None
+       test_x   = None
+       test_y   = None
+       tau      = None
        n_hidden = None
        n_epochs = None
    else:
@@ -39,11 +40,10 @@ def get_data(dataset, split_id):
        tau      = np.loadtxt('../UCI_Datasets/' + dataset + "/results/test_tau_100_xepochs_1_hidden_layers.txt")[split_id]
        n_hidden = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_hidden.txt", dtype = np.int64)
        n_epochs = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_epochs.txt", dtype = np.int64)
-
-       train_x = xs[train_id]
-       train_y = ys[train_id]
-       test_x = xs[test_id]
-       test_y = ys[test_id]
+       train_x  = torch.FloatTensor(xs[train_id])
+       train_y  = torch.FloatTensor(ys[train_id])
+       test_x   = torch.FloatTensor(xs[test_id])
+       test_y   = torch.FloatTensor(ys[test_id])
    return train_x, train_y, test_x, test_y,tau,n_hidden, n_splits, n_epochs
 
 
@@ -53,52 +53,49 @@ def uci(dataset, split_id):
        print("Invalid split_id")
        return np.nan, np.nan, np.nan, np.nan
    print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
-   num_train  = train_x.shape[0]
-   n_epochs  *= 100
-   conf       = dict()
+   xm, xs, _, _ = normalize(train_x, train_y)
+   train_x = (train_x - xm) / xs
+   test_x  = (test_x  - xm) / xs
 
-   conf['batch_size']  = 32
-   conf['num_samples'] = 500
-   conf['mcmc_steps']  = 1
-   conf['to_resample'] = False
+   conf                = dict()
+   conf['num_epochs']  = 100*n_epochs # XXX: 10x, not 100x
+   conf['batch_size']  = 128          # XXX: 32, not 128
+   conf['print_every'] = 100
+   # conf['fixed_noise'] = np.sqrt(1 / tau)
 
-   conf['lr_weight']   = 2e-3
-   conf['lr_noise']    = 1e-2
-   conf['weight_std']  = 0.2
-   conf['logvar_std']  = 0.4
-   conf['logvar_mean'] = -2
+   conf['lr']     = 0.03
+   conf['dr']     = 1.
+   conf['lscale'] = 0.03
 
-   model = BNN_SMC(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
-   model.active_train(torch.FloatTensor(train_x), torch.FloatTensor(train_y), max_train = 200, vx = torch.FloatTensor(test_x), vy = torch.FloatTensor(test_y))
+   model = BNN_CDropout(train_x.shape[1], nn.ReLU(), num_hiddens = [n_hiddens, n_hiddens], conf = conf)
+   model.train(train_x, train_y)
    model.report()
-   rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=20)
-   smse                   = rmse**2 / np.mean((test_y - train_y.mean())**2)
-   print('RMSE = %g, smse = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, smse, nll_gaussian, nll), flush = True)
+   rmse, nll_gaussian,nll = model.validate(test_x, test_y, num_samples=100)
+   smse = rmse**2 / torch.mean((test_y - train_y.mean())**2)
+   print('RMSE = %g, SMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, smse, nll_gaussian, nll), flush = True)
    return rmse, nll_gaussian, nll
 
 ds = [
   'bostonHousing'
- , 'concrete'
- , 'energy'
- , 'kin8nm'
- , 'naval-propulsion-plant'
- , 'power-plant'
- , 'protein-tertiary-structure'
- , 'wine-quality-red'
- , 'yacht'
+, 'concrete'
+, 'energy'
+, 'kin8nm'
+, 'naval-propulsion-plant'
+, 'power-plant'
+, 'protein-tertiary-structure'
+, 'wine-quality-red'
+, 'yacht'
+
 ]
 
-ds = ['bostonHousing']
+ds = ['yacht']
 
 stat = dict()
 from multiprocessing import Pool
 for d in ds:
     def f(split_id):
         return uci(d, split_id)
-
-    stat[d] = [f(split_id) for split_id in range(1)]
-    # with Pool(num_thread) as p:
-    #     stat[d] = p.map(f, list(range(20)))
-    f = open("./results/stat_SMC.pkl","wb")
+    stat[d] = [f(split_id) for split_id in range(20)]
+    f = open("./results/stat_CDropout.pkl","wb")
     pickle.dump(stat,f)
     f.close()

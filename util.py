@@ -6,7 +6,7 @@ from torch.distributions.utils import clamp_probs
 from torch.distributions.relaxed_bernoulli import RelaxedBernoulli
 
 class NN(nn.Module):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 2): #XXX: nout = 2, output and logarithm of heteroscedastic noise variance
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 1): #XXX: nout = 2, output and logarithm of heteroscedastic noise variance
         super(NN, self).__init__()
         self.dim          = dim
         self.nout         = nout
@@ -59,3 +59,16 @@ def stable_log_lik(mu, var, y):
 
 def stable_nn_lik(nn_out, y):
     return stable_log_lik(nn_out[:, 0], nn_out[:, 1], y)
+
+
+def normalize(X, y):
+    assert(X.dim() == 2)
+    assert(y.dim() == 1)
+    x_mean = X.mean(dim = 0)
+    x_std  = X.std(dim = 0)
+    y_mean = y.mean()
+    y_std  = y.std()
+    x_std[x_std == 0] = torch.tensor(1.)
+    if y_std == 0:
+        y_std = torch.tensor(1.)
+    return x_mean, x_std, y_mean, y_std

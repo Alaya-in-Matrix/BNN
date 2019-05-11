@@ -5,7 +5,7 @@ import torch.nn            as nn
 import torch.nn.functional as F
 import torch.distributions as dist
 import numpy               as np
-from util import *
+from util import StableRelaxedBernoulli
 from BNN  import BNN
 from torch.utils.data import TensorDataset, DataLoader
 from torch.distributions.utils import clamp_probs, probs_to_logits, logits_to_probs
@@ -67,16 +67,13 @@ class CDropoutLinear(nn.Module):
         return linear
 
 class NN_CDropout(nn.Module):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 2):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50]):
         super(NN_CDropout, self).__init__()
         self.dim         = dim
-        self.nout        = nout
         self.act         = act
         self.num_hiddens = num_hiddens
         self.num_layers  = len(num_hiddens)
-        self.hidden      = self.mlp()
-        self.pred        = CDropoutLinear(num_hiddens[-1], 1)
-        self.logvar      = CDropoutLinear(num_hiddens[-1], 1)
+        self.nn          = self.mlp()
 
     def mlp(self):
         layers  = []
@@ -85,97 +82,75 @@ class NN_CDropout(nn.Module):
             layers.append(CDropoutLinear(pre_dim, self.num_hiddens[i]))
             layers.append(self.act)
             pre_dim = self.num_hiddens[i]
+        layers.append(CDropoutLinear(pre_dim, 1))
         return nn.Sequential(*layers)
 
     def sample(self):
         layers = []
-        for layer in self.hidden:
+        for layer in self.nn:
             layers.append(layer.sample() if isinstance(layer, CDropoutLinear) else layer)
-        pred_layer            = self.pred.sample()
-        logvar_layer          = self.logvar.sample()
-        out_layer             = nn.Linear(self.num_hiddens[-1], 2)
-        out_layer.weight.data = torch.cat((pred_layer.weight.data, logvar_layer.weight.data), dim=0).clone()
-        out_layer.bias.data   = torch.cat((pred_layer.bias.data, logvar_layer.bias.data)).clone()
-        layers.append(out_layer)
         return nn.Sequential(*layers)
 
     def forward(self, input):
-        out    = self.hidden(input)
-        pred   = self.pred(out)
-        logvar = self.logvar(out)
-        return torch.cat((pred, logvar), dim = input.dim()-1)
+        return self.nn(input)
 
 class BNN_CDropout(BNN):
     def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], conf = dict()):
         super(BNN_CDropout, self).__init__()
-        self.dim          = dim
-        self.act          = act
-        self.num_hiddens  = num_hiddens
-        self.num_epochs   = conf.get('num_epochs',   400)
-        self.lr           = conf.get('lr',           1e-2)
-        self.lscale       = conf.get('lscale',       1e-2)
-        self.batch_size   = conf.get('batch_size',   32)
-        self.print_every  = conf.get('print_every',  100)
-        self.normalize    = conf.get('normalize',    True)
-        self.use_cuda     = conf.get('use_cuda',     False) and torch.cuda.is_available()
-        self.nn           = NN_CDropout(dim, self.act, self.num_hiddens, 2)
-        if self.use_cuda:
-            self.nn = self.nn.cuda()
+        self.dim         = dim
+        self.act         = act
+        self.num_hiddens = num_hiddens
+        self.num_epochs  = conf.get('num_epochs',   400)
+        self.batch_size  = conf.get('batch_size',   32)
+        self.print_every = conf.get('print_every',  100)
+        self.normalize   = conf.get('normalize',    True)
+        self.fixed_noise = conf.get('fixed_noise',  None)
+
+        self.lr          = conf.get('lr',       1e-2)
+        self.lscale      = conf.get('lscale',   1e-1)  # prior for weight: w ~ N(0, I/lscale^2)
+        self.dr          = conf.get('dr',       1.)    # XXX: this hyper-parameter shouldn't exist in a full bayesian setting with fixed noise
+
+        self.nn          = NN_CDropout(dim, self.act, self.num_hiddens)
+        self.noise_level = 1. if self.fixed_noise is None else self.fixed_noise
 
     def train(self, X, y):
-        if self.use_cuda:
-            X = X.cuda()
-            y = y.cuda()
-        self.normalize_Xy(X, y, self.normalize)
-        num_train = self.X.shape[0]
-        opt       = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
-        dataset   = TensorDataset(self.X, self.y)
-        loader    = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
+        num_train        = X.shape[0]
+        opt              = torch.optim.Adam(self.nn.parameters(), lr = self.lr)
+        dataset          = TensorDataset(X, y)
+        loader           = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
+        crit             = nn.MSELoss(reduction = 'sum')
         for epoch in range(self.num_epochs):
-            epoch_lik  = 0.
+            epoch_mse  = 0.
             epoch_wreg = 0.
             epoch_ent  = 0.
             for bx, by in loader:
                 opt.zero_grad()
-                log_lik    = stable_nn_lik(self.nn(bx), by).sum()
-                wreg, ent  = self.reg()
+                py        = self.nn(bx).squeeze()
+                mse_loss  = crit(py, by)
+                wreg, ent = self.reg()
                 wreg      *= bx.shape[0] / num_train
                 ent       *= bx.shape[0] / num_train
-                loss       = -1 * log_lik + (wreg - ent)
+                loss       = mse_loss + (wreg - ent)
                 loss.backward()
                 opt.step()
-                epoch_lik  += log_lik 
-                epoch_wreg += wreg    
-                epoch_ent  += ent     
+                epoch_mse  += mse_loss
+                epoch_wreg += wreg
+                epoch_ent  += ent
+            if self.fixed_noise is None:
+                self.noise_level = np.sqrt(epoch_mse.detach().numpy() / num_train)
             if (epoch + 1) % self.print_every == 0:
-                print("[Epoch %5d, loss = %-6.2f, -log_lik = %-6.2f, wreg = %g, -entropy = %6.2f]" % (
-                    epoch + 1,
-                    epoch_wreg - epoch_ent - epoch_lik,
-                    -1 * epoch_lik,
-                    epoch_wreg,
-                    -1 * epoch_ent)
-                )
-        self.nn = self.nn.cpu()
-        if self.normalize:
-            self.x_mean  = self.x_mean.cpu()
-            self.x_std   = self.x_std.cpu()
-            self.y_mean  = self.y_mean.cpu()
-            self.y_std   = self.y_std.cpu()
+                print("Epoch %4d, mse = %g, noise = %g, wreg = %g, -entropy = %g" % (epoch+1, epoch_mse / num_train, self.noise_level, epoch_wreg / num_train, -1 * epoch_ent / num_train))
     
     def reg(self):
-        entropy    = torch.tensor(0.)
-        weight_reg = torch.tensor(0.)
-        for layer in self.nn.hidden:
+        entropy    = 0.
+        weight_reg = 0.
+        noise_var  = self.noise_level**2
+        for layer in self.nn.nn:
             if isinstance(layer, CDropoutLinear):
+                prob        = 1 - layer.dropout_rate()
                 w2, ent     = layer.reg()
-                entropy    += ent
-                weight_reg += 0.5 * self.lscale**2 * (1 - layer.dropout_rate()) * w2
-        w2, ent     = self.nn.pred.reg()
-        entropy    += ent
-        weight_reg += 0.5 * self.lscale**2 * (1 - self.nn.pred.dropout_rate()) * w2
-        w2, ent     = self.nn.logvar.reg()
-        entropy    += ent
-        weight_reg += 0.5 * self.lscale**2 * (1 - self.nn.logvar.dropout_rate()) * w2
+                weight_reg += self.lscale**2 * prob * noise_var * w2
+                entropy    += self.dr * 2 * noise_var * ent
         return weight_reg, entropy
 
 
@@ -184,18 +159,13 @@ class BNN_CDropout(BNN):
         return nns
 
     def sample_predict(self, nns, X):
-        num_x     = X.shape[0]
-        X         = (X - self.x_mean) / self.x_std
-        pred      = torch.zeros(len(nns), num_x)
-        prec = torch.zeros(len(nns), num_x)
+        num_x = X.shape[0]
+        pred  = torch.zeros(len(nns), num_x)
+        prec  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
-            nn_out    = nns[i](X)
-            py        = nn_out[:, 0]
-            logvar    = nn_out[:, 1]
-            noise_var = stable_noise_var(logvar) * self.y_std**2
-            pred[i]   = self.y_mean + py  * self.y_std
-            prec[i]   = 1 / noise_var
+            pred[i] = nns[i](X).squeeze()
+        prec = torch.ones(pred.shape) / (self.noise_level**2)
         return pred, prec
 
     def report(self):
-        print(self.nn)
+        print(self.nn.nn)

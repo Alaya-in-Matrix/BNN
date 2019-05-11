@@ -7,24 +7,6 @@ class BNN(ABC):
     def __init__(self):
         pass
 
-    def normalize_Xy(self, X, y, normalize):
-        y = y.squeeze()
-        if normalize:
-            self.x_mean = X.mean(dim = 0)
-            self.x_std  = X.std(dim = 0)
-            self.y_mean = y.mean()
-            self.y_std  = y.std()
-            self.x_std[self.x_std == 0] = torch.tensor(1.)
-            if self.y_std == 0:
-                self.y_std = torch.tensor(1.)
-        else:
-            self.x_mean = torch.zeros(X.shape[1])
-            self.x_std  = torch.ones(X.shape[1])
-            self.y_mean = torch.tensor(0.)
-            self.y_std  = torch.tensor(1.)
-        self.X = (X - self.x_mean) / self.x_std
-        self.y = (y - self.y_mean) / self.y_std
-
     @abstractmethod
     def train(self, X, y):
         """

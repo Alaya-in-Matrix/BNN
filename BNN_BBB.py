@@ -20,7 +20,7 @@ class GaussianLinear(nn.Module):
 
     def rsample(self):
         eps           = torch.randn(self.mu.shape)
-        scale         = F.softplus(torch.clamp(self.rho, min = -7.))
+        scale         = stable_noise_var(self.rho).sqrt()
         self.wb       = self.mu + scale * eps
         self.log_prob = torch.sum(-0.5 * torch.pow((self.wb - self.mu) / scale, 2) - 0.5 * torch.log(2 * np.pi * scale**2))
 
@@ -43,10 +43,9 @@ class GaussianLinear(nn.Module):
         return 'in_features={}, out_features={}'.format(self.in_features, self.out_features)
 
 class BayesianNN(nn.Module):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 1):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50]):
         super(BayesianNN, self).__init__()
         self.dim         = dim
-        self.nout        = nout
         self.act         = act
         self.num_hiddens = num_hiddens
         self.num_layers  = len(num_hiddens)
@@ -69,7 +68,7 @@ class BayesianNN(nn.Module):
             layers.append(GaussianLinear(pre_dim, self.num_hiddens[i]))
             layers.append(self.act)
             pre_dim = self.num_hiddens[i]
-        layers.append(GaussianLinear(pre_dim, self.nout))
+        layers.append(GaussianLinear(pre_dim, 1))
         return nn.Sequential(*layers)
 
 class BNN_BBB(BNN):
@@ -78,18 +77,23 @@ class BNN_BBB(BNN):
         self.dim         = dim
         self.act         = act
         self.num_hiddens = num_hiddens
-        self.num_epochs  = conf.get('num_epochs',   1000)
-        self.batch_size  = conf.get('batch_size',   64)
+        self.num_epochs  = conf.get('num_epochs',   2000)
+        self.batch_size  = conf.get('batch_size',   32)
         self.print_every = conf.get('print_every',  100)
-        self.normalize   = conf.get('normalize',    True)
 
         self.lr_weight   = conf.get('lr_weight',    1e-2)
         self.lr_noise    = conf.get('lr_noise',     1e-2)
-        self.w_std       = conf.get('w_std',        0.5)
+        self.weight_std  = conf.get('weight_std',   0.2)
+        self.fixed_noise = conf.get('fixed_noise',  None)
 
-        self.w_prior     = torch.distributions.Normal(torch.zeros(1), self.w_std*torch.ones(1))
-        self.nn          = BayesianNN(dim, self.act, self.num_hiddens)
-        self.logvar      = nn.Parameter(torch.tensor(-2.))
+        self.w_prior = torch.distributions.Normal(torch.zeros(1), self.weight_std*torch.ones(1))
+        self.nn      = BayesianNN(dim, self.act, self.num_hiddens)
+        self.X       = None
+        self.y       = None
+        if self.fixed_noise is None:
+            self.logvar  = nn.Parameter(torch.tensor(-2.))
+        else:
+            self.logvar = torch.log(torch.tensor(self.fixed_noise**2).exp() - 1)
 
     def loss(self, X, y):
         num_x       = X.shape[0]
@@ -107,19 +111,18 @@ class BNN_BBB(BNN):
         return log_lik, kl_term
 
     def train(self, X, y):
-        num_x = X.shape[0]
-        X     = X.reshape(num_x, self.dim)
-        y     = y.reshape(num_x)
-        self.normalize_Xy(X, y, self.normalize)
-        dataset   = TensorDataset(self.X, self.y)
-        loader    = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
+        num_x   = X.shape[0]
+        X       = X.reshape(num_x, self.dim)
+        y       = y.reshape(num_x)
+        dataset = TensorDataset(X, y)
+        loader  = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
         param_dict = dict()
         param_dict['logvar'] = self.logvar
         param_dict['nn'] = self.nn.parameters()
 
         dict_logvar = {"params": self.logvar,          'lr': self.lr_noise}
         dict_nn     = {"params": self.nn.parameters(), 'lr': self.lr_weight}
-        opt         = torch.optim.RMSprop([dict_logvar, dict_nn], centered = True)
+        opt         = torch.optim.Adam([dict_logvar, dict_nn])
         for epoch in range(self.num_epochs):
             epoch_kl  = 0.
             epoch_lik = 0.
@@ -133,40 +136,19 @@ class BNN_BBB(BNN):
                 epoch_kl  += kl_term
                 epoch_lik += log_lik
             if ((epoch + 1) % self.print_every == 0):
-                log_lik, kl_term = self.loss(self.X, self.y)
-                print("[Epoch %5d, loss = %8.2f (KL = %8.2f, -log_lik = %8.2f), noise_var = %.2f]" % (epoch + 1, epoch_kl - epoch_lik, epoch_kl, -1 * epoch_lik, stable_noise_var(self.logvar) * self.y_std**2))
+                print("[Epoch %5d, loss = %8.2f (KL = %8.2f, -log_lik = %8.2f), noise_var = %g]" % (epoch + 1, epoch_kl - epoch_lik, epoch_kl, -1 * epoch_lik, stable_noise_var(self.logvar)))
 
     def sample(self, num_samples = 1):
-        nns    = []
-        ratios = []
-        for i in range(num_samples):
-            net     = self.nn.sample()
-            pred    = net(self.X)
-            log_lik = stable_log_lik(pred, self.logvar, self.y).sum()
-            log_qw  = 0.
-            log_pw  = 0.
-            for layer in self.nn.nn:
-                if isinstance(layer, GaussianLinear):
-                    log_qw += layer.log_prob
-                    log_pw += self.w_prior.log_prob(layer.wb).sum()
-            log_ratio = log_lik + log_pw - log_qw
-            nns.append(net)
-            ratios.append(log_ratio)
-        weights = torch.tensor(ratios)
-        weights = torch.exp(weights - weights.max())
-        weights = weights / weights.sum()
-        ess = 1. / (weights**2).sum()
-        print("Ess is %g/%d" % (ess, num_samples))
+        nns = [self.nn.sample() for _ in range(num_samples)]
         return nns
 
     def sample_predict(self, nns, X):
         num_x = X.shape[0]
-        X     = (X - self.x_mean) / self.x_std
         pred  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
             py      = nns[i](X).squeeze()
-            pred[i] = self.y_mean + py  * self.y_std
-        prec = torch.ones(pred.shape) / (stable_noise_var(self.logvar) * self.y_std**2)
+            pred[i] = py
+        prec = torch.ones(pred.shape) /  stable_noise_var(self.logvar)
         return pred, prec
 
     def report(self):

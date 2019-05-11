@@ -7,9 +7,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from BNN_SVI import BNN_SVI
 import matplotlib.pyplot as plt
 import pickle
+from BNN_SVI import BNN_SVI
+from util import normalize
 
 torch.set_num_threads(1)
 
@@ -26,24 +27,23 @@ def get_data(dataset, split_id):
    ys = data[:,-1]
    n_splits = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_splits.txt", dtype = np.int64)
    if split_id >= n_splits:
-       train_x = None
-       train_y = None
-       test_x  = None
-       test_y = None
-       tau = None
+       train_x  = None
+       train_y  = None
+       test_x   = None
+       test_y   = None
+       tau      = None
        n_hidden = None
        n_epochs = None
    else:
        train_id = np.loadtxt('../UCI_Datasets/' + dataset + "/data/index_train_" + str(split_id) + ".txt", dtype = np.int64)
-       test_id = np.loadtxt('../UCI_Datasets/' + dataset + "/data/index_test_" + str(split_id) + ".txt", dtype = np.int64)
+       test_id  = np.loadtxt('../UCI_Datasets/' + dataset + "/data/index_test_" + str(split_id) + ".txt", dtype = np.int64)
        tau      = np.loadtxt('../UCI_Datasets/' + dataset + "/results/test_tau_100_xepochs_1_hidden_layers.txt")[split_id]
        n_hidden = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_hidden.txt", dtype = np.int64)
        n_epochs = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_epochs.txt", dtype = np.int64)
-
-       train_x = xs[train_id]
-       train_y = ys[train_id]
-       test_x = xs[test_id]
-       test_y = ys[test_id]
+       train_x  = torch.FloatTensor(xs[train_id])
+       train_y  = torch.FloatTensor(ys[train_id])
+       test_x   = torch.FloatTensor(xs[test_id])
+       test_y   = torch.FloatTensor(ys[test_id])
    return train_x, train_y, test_x, test_y,tau,n_hidden, n_splits, n_epochs
 
 
@@ -53,19 +53,28 @@ def uci(dataset, split_id):
        print("Invalid split_id")
        return np.nan, np.nan, np.nan, np.nan
    print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
-   conf = dict()
-   conf['batch_size']  = 32
-   conf['num_iters']   = 10*n_epochs * (1+int(train_x.shape[0] / 32))
-   conf['noise_level'] = 1/np.sqrt(tau)
-   conf['print_every'] = np.inf
+   xm, xs, _, _ = normalize(train_x, train_y)
+   train_x = (train_x - xm) / xs
+   test_x  = (test_x  - xm) / xs
+
+   conf                = dict()
+   conf['batch_size']  = 32          
+   conf['num_iters']   = int(10 * n_epochs * train_x.shape[0] / conf['batch_size']) 
+   conf['print_every'] = 100
+   conf['fixed_noise'] = np.sqrt(1 / tau)
+
+   conf['lr']         = 1e-2
+   conf['weight_std'] = 1
+
    model = BNN_SVI(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
-   model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
-   rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=1000)
-   print('RMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, nll_gaussian, nll))
+   model.train(train_x, train_y)
+   rmse, nll_gaussian,nll = model.validate(test_x, test_y, num_samples=100)
+   smse = rmse**2 / torch.mean((test_y - train_y.mean())**2)
+   print('RMSE = %g, SMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, smse, nll_gaussian, nll), flush = True)
    return rmse, nll_gaussian, nll
 
 ds = [
-    'bostonHousing'
+  'bostonHousing'
 , 'concrete'
 , 'energy'
 , 'kin8nm'
@@ -82,8 +91,7 @@ from multiprocessing import Pool
 for d in ds:
     def f(split_id):
         return uci(d, split_id)
-    with Pool(num_thread) as p:
-        stat[d] = p.map(f, list(range(20)))
-    f = open("./results/stat_pyro_svi.pkl","wb")
+    stat[d] = [f(split_id) for split_id in range(1)]
+    f = open("./results/stat_SVI.pkl","wb")
     pickle.dump(stat,f)
     f.close()

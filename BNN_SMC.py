@@ -10,7 +10,6 @@ from torch.utils.data import TensorDataset, DataLoader
 from pysgmcmc.data.utils import infinite_dataloader
 from pysgmcmc.optimizers.sgld  import SGLD
 from pysgmcmc.optimizers.sghmc import SGHMC
-from SGLD import SGLD as MySGLD
 from copy import deepcopy
 from tqdm import tqdm
 from joblib import Parallel, delayed
@@ -25,7 +24,6 @@ class BNN_SMC(nn.Module, BNN):
         self.num_hiddens = num_hiddens
         self.batch_size  = conf.get('batch_size',   32)
         self.num_samples = conf.get('num_samples',  50)
-        self.normalize   = conf.get('normalize',    True) # XXX: only usefull for offline training
         self.mcmc_steps  = conf.get('mcmc_steps',   40)
         self.num_threads = conf.get('num_threads',  1)
         self.to_resample = conf.get('to_resample',  True)
@@ -120,10 +118,7 @@ class BNN_SMC(nn.Module, BNN):
         var[train_idxs] = -1 * np.inf
         return var.argmax().item()
 
-    def active_train(self, _X, _y, max_train = 100, vx = None, vy = None):
-        self.normalize_Xy(_X, _y, self.normalize)
-        X               = self.X.clone()
-        y               = self.y.clone()
+    def active_train(self, X, y, max_train = 100, vx = None, vy = None):
         self.X          = None
         self.y          = None
         num_train       = X.shape[0]
@@ -131,8 +126,8 @@ class BNN_SMC(nn.Module, BNN):
         train_idx       = []
         fid             = open('train.log', 'w')
         if vx is None:
-            vx = _X.clone()
-            vy = _y.clone()
+            vx = X.clone()
+            vy = y.clone()
         for i in tbar:
             id         = self.select_point(X, y, train_idx)
             new_x      = X[id].unsqueeze(0)
@@ -152,8 +147,8 @@ class BNN_SMC(nn.Module, BNN):
             self.smc_sgld_update()
 
             rmse, nll_g, nll = self.validate(vx, vy)
-            tbar.set_description('ID = %d, ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g' % (id, ess, nll, rmse, rmse**2 / _y.var()))  
-            fid.write('%d, ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g\n' % (i, ess, nll, rmse, rmse**2 / _y.var()))  
+            tbar.set_description('ID = %d, ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g' % (id, ess, nll, rmse, rmse**2 / y.var()))  
+            fid.write('%d, ESS = %.2f, NLL = %g, RMSE = %g, SMSE = %g\n' % (i, ess, nll, rmse, rmse**2 / y.var()))  
             fid.flush()
         fid.close()
 
@@ -163,15 +158,14 @@ class BNN_SMC(nn.Module, BNN):
 
     def sample_predict(self, nns, X):
         num_x = X.shape[0]
-        X     = (X - self.x_mean) / self.x_std
         pred  = torch.zeros(len(nns), num_x)
         prec  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
             nn_out    = nns[i](X)
             py        = nn_out[:, 0]
             logvar    = nn_out[:, 1]
-            noise_var = stable_noise_var(logvar) * self.y_std**2
-            pred[i]   = self.y_mean + py  * self.y_std
+            noise_var = stable_noise_var(logvar) 
+            pred[i]   = py
             prec[i]   = 1 / noise_var
         return pred, prec
 

@@ -7,9 +7,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from BNN_CDropout import BNN_CDropout
 import matplotlib.pyplot as plt
 import pickle
+from BNN_BBB import BNN_BBB
+from util import normalize
 
 torch.set_num_threads(1)
 
@@ -26,11 +27,11 @@ def get_data(dataset, split_id):
    ys = data[:,-1]
    n_splits = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_splits.txt", dtype = np.int64)
    if split_id >= n_splits:
-       train_x = None
-       train_y = None
-       test_x  = None
-       test_y = None
-       tau = None
+       train_x  = None
+       train_y  = None
+       test_x   = None
+       test_y   = None
+       tau      = None
        n_hidden = None
        n_epochs = None
    else:
@@ -39,11 +40,10 @@ def get_data(dataset, split_id):
        tau      = np.loadtxt('../UCI_Datasets/' + dataset + "/results/test_tau_100_xepochs_1_hidden_layers.txt")[split_id]
        n_hidden = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_hidden.txt", dtype = np.int64)
        n_epochs = np.loadtxt('../UCI_Datasets/' + dataset + "/data/n_epochs.txt", dtype = np.int64)
-
-       train_x = xs[train_id]
-       train_y = ys[train_id]
-       test_x = xs[test_id]
-       test_y = ys[test_id]
+       train_x  = torch.FloatTensor(xs[train_id])
+       train_y  = torch.FloatTensor(ys[train_id])
+       test_x   = torch.FloatTensor(xs[test_id])
+       test_y   = torch.FloatTensor(ys[test_id])
    return train_x, train_y, test_x, test_y,tau,n_hidden, n_splits, n_epochs
 
 
@@ -53,29 +53,38 @@ def uci(dataset, split_id):
        print("Invalid split_id")
        return np.nan, np.nan, np.nan, np.nan
    print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
-   conf = dict()
-   conf['num_epochs']  = 100*n_epochs  # XXX: 10x, not 100x
-   conf['batch_size']  = 128           # XXX: 32, not 128
+   xm, xs, _, _ = normalize(train_x, train_y)
+   train_x = (train_x - xm) / xs
+   test_x  = (test_x  - xm) / xs
+
+   conf                = dict()
+   conf['num_epochs']  = 100*n_epochs # XXX: 10x, not 100x
+   conf['batch_size']  = 128          # XXX: 32, not 128
    conf['print_every'] = 100
-   conf['lr']          = 1e-2
-   conf['lscale']      = 1.
-   model = BNN_CDropout(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
-   model.train(torch.FloatTensor(train_x), torch.FloatTensor(train_y))
-   model.report()
-   rmse, nll_gaussian,nll = model.validate(torch.FloatTensor(test_x), torch.FloatTensor(test_y), num_samples=1000)
-   print('RMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, nll_gaussian, nll), flush = True)
+   conf['fixed_noise'] = np.sqrt(1 / tau)
+
+   conf['lr_weight']   = 3e-2
+   conf['lr_noise']    = 3e-2
+   conf['weight_std']  = 1.
+
+   model = BNN_BBB(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
+   model.train(train_x, train_y)
+   rmse, nll_gaussian,nll = model.validate(test_x, test_y, num_samples=100)
+   smse = rmse**2 / torch.mean((test_y - train_y.mean())**2)
+   print('RMSE = %g, SMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, smse, nll_gaussian, nll), flush = True)
    return rmse, nll_gaussian, nll
 
 ds = [
   'bostonHousing'
- , 'concrete'
- , 'energy'
- , 'kin8nm'
- , 'naval-propulsion-plant'
- , 'power-plant'
- , 'protein-tertiary-structure'
- , 'wine-quality-red'
- , 'yacht'
+, 'concrete'
+, 'energy'
+, 'kin8nm'
+, 'naval-propulsion-plant'
+, 'power-plant'
+, 'protein-tertiary-structure'
+, 'wine-quality-red'
+, 'yacht'
+
 ]
 
 stat = dict()
@@ -83,8 +92,7 @@ from multiprocessing import Pool
 for d in ds:
     def f(split_id):
         return uci(d, split_id)
-    with Pool(num_thread) as p:
-        stat[d] = p.map(f, list(range(20)))
-    f = open("./results/stat_CDropout.pkl","wb")
+    stat[d] = [f(split_id) for split_id in range(1)]
+    f = open("./results/stat_BBB.pkl","wb")
     pickle.dump(stat,f)
     f.close()
