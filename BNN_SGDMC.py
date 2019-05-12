@@ -45,8 +45,9 @@ class BNN_SGDMC(nn.Module, BNN):
         self.init_nn()
     
     def init_nn(self):
-        self.log_lambda.data = self.prior_log_lambda.sample()
-        self.log_precs.data  = self.prior_log_precision.sample((self.nout, ))
+        pass
+        # self.log_lambda.data = self.prior_log_lambda.sample()
+        # self.log_precs.data  = self.prior_log_precision.sample((self.nout, ))
 
     def log_prior(self):
         log_p  = self.prior_log_lambda.log_prob(self.log_lambda).sum()
