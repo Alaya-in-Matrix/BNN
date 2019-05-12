@@ -27,13 +27,13 @@ class BNN_SGDMC(nn.Module, BNN):
         self.keep_every   = conf.get('keep_every',   50)
         self.batch_size   = conf.get('batch_size',   32)
 
-        self.lr_weight = conf.get('lr_weight', 1e-2)
-        self.lr_noise  = conf.get('lr_noise ', 1e-2)
-        self.lr_lambda = conf.get('lr_lambda', 1e-2)
-        self.alpha_w   = torch.as_tensor(conf.get('alpha_w', 6.))
-        self.beta_w    = torch.as_tensor(conf.get('beta_w',  6.))
-        self.alpha_n   = torch.as_tensor(conf.get('alpha_n', 6.))
-        self.beta_n    = torch.as_tensor(conf.get('beta_w',  6.))
+        self.lr_weight = conf.get('lr_weight', 1e-3)
+        self.lr_noise  = conf.get('lr_noise ', 1e-5)
+        self.lr_lambda = conf.get('lr_lambda', 1e-4)
+        self.alpha_w   = torch.as_tensor(conf.get('alpha_w', 0.1))
+        self.beta_w    = torch.as_tensor(conf.get('beta_w',  0.001))
+        self.alpha_n   = torch.as_tensor(conf.get('alpha_n', 10.))
+        self.beta_n    = torch.as_tensor(conf.get('beta_w',  0.4))
 
         self.prior_log_lambda    = TransformedDistribution(Gamma(self.alpha_w, self.beta_w), ExpTransform().inv) # log of gamma distribution
         self.prior_log_precision = TransformedDistribution(Gamma(self.alpha_n, self.beta_n), ExpTransform().inv)
