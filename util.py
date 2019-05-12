@@ -6,7 +6,7 @@ from torch.distributions.utils import clamp_probs
 from torch.distributions.relaxed_bernoulli import RelaxedBernoulli
 
 class NN(nn.Module):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 1): #XXX: nout = 2, output and logarithm of heteroscedastic noise variance
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 1):
         super(NN, self).__init__()
         self.dim          = dim
         self.nout         = nout

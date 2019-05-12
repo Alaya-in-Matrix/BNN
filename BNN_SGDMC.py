@@ -3,6 +3,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.distributions import Gamma
+from torch.distributions.transforms import ExpTransform
+from torch.distributions.transformed_distribution import TransformedDistribution
 import numpy as np
 from copy import deepcopy
 from util import *
@@ -12,33 +15,55 @@ from pysgmcmc.optimizers.sgld  import SGLD
 from pysgmcmc.optimizers.sghmc import SGHMC
 
 class BNN_SGDMC(nn.Module, BNN):
-    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], conf = dict()):
+    def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 1, conf = dict()):
         nn.Module.__init__(self)
         BNN.__init__(self)
         self.dim          = dim
         self.act          = act
         self.num_hiddens  = num_hiddens
-        self.steps_burnin = conf.get('steps_burnin', 3000)
-        self.steps        = conf.get('steps',        10000)
-        self.keep_every   = conf.get('keep_every',   100)
+        self.nout         = nout
+        self.steps_burnin = conf.get('steps_burnin', 2500)
+        self.steps        = conf.get('steps',        2500)
+        self.keep_every   = conf.get('keep_every',   50)
         self.batch_size   = conf.get('batch_size',   32)
 
-        self.lr_weight    = conf.get('lr_weight',    1e-3)
-        self.lr_noise     = conf.get('lr_noise',     1e-5)
-        self.weight_std   = conf.get('weight_std',   0.5)
-        self.logvar_std   = conf.get('logvar_std',   1.)
-        self.logvar_mean  = conf.get('logvar_mean',  -1)
+        self.lr_weight = conf.get('lr_weight', 1e-2)
+        self.lr_noise  = conf.get('lr_noise ', 1e-2)
+        self.lr_lambda = conf.get('lr_lambda', 1e-2)
 
-        self.nn           = NoisyNN(dim, self.act, self.num_hiddens, torch.tensor(0.))
+        self.alpha_w             = torch.tensor(6.) # w ~ N(0, lambda^-1), lambda ~ Gamma(alpha_w, beta_w)
+        self.beta_w              = torch.tensor(6.)
+        self.alpha_n             = torch.tensor(6.) # precision ~ Gamma(alpha_n, beta_n)
+        self.beta_n              = torch.tensor(6.)
+        self.prior_log_lambda    = TransformedDistribution(Gamma(self.alpha_w, self.beta_w), ExpTransform().inv) # log of gamma distribution
+        self.prior_log_precision = TransformedDistribution(Gamma(self.alpha_n, self.beta_n), ExpTransform().inv)
+
+        self.log_lambda = nn.Parameter(torch.tensor(0.))
+        self.log_precs  = nn.Parameter(torch.zeros(self.nout))
+        self.nn         = NN(dim, self.act, self.num_hiddens, self.nout)
+        
+        self.init_nn()
+    
+    def init_nn(self):
+        self.log_lambda.data = self.prior_log_lambda.sample()
+        self.log_precs.data  = self.prior_log_precision.sample((self.nout, ))
 
     def log_prior(self):
-        log_prior = -0.5 * torch.pow((self.nn.logvar - self.logvar_mean) / self.logvar_std, 2)
+        log_p  = self.prior_log_lambda.log_prob(self.log_lambda).sum()
+        log_p += self.prior_log_precision.log_prob(self.log_precs).sum()
+
+        lambd = self.log_lambda.exp()
         for n, p in self.nn.nn.named_parameters():
-            if "weight" in n:
-                log_prior += -0.5 * (p**2 / self.weight_std**2).sum()
-            elif "bias" in n:
-                log_prior += -0.5 * (p**2 / (1000)**2).sum()
-        return log_prior
+            if "weight" in p:
+                log_p += -0.5 * lambd * torch.sum(p**2) + 0.5 * p.numel() * (self.log_lambda - np.log(2 * np.pi))
+        return log_p
+
+    def log_lik(self, X, y):
+        y       = y.view(-1, self.nout)
+        nout    = self.nn(X).view(-1, self.nout)
+        precs   = self.log_precs.exp()
+        log_lik = -0.5 * precs * (y - nout)**2 + 0.5 * self.log_precs - 0.5 * np.log(2 * np.pi)
+        return log_lik.sum()
 
     def sgld_steps(self, num_steps, num_train):
         step_cnt = 0
@@ -46,22 +71,26 @@ class BNN_SGDMC(nn.Module, BNN):
         while(step_cnt < num_steps):
             for bx, by in self.loader:
                 log_prior = self.log_prior()
-                nout      = self.nn(bx).squeeze()
-                log_lik   = stable_nn_lik(nout, by.squeeze()).sum()
+                log_lik   = self.log_lik(bx, by)
                 loss      = -1 * (log_lik * (num_train / bx.shape[0]) + log_prior)
                 self.opt.zero_grad()
                 loss.backward()
                 self.opt.step()
                 step_cnt += 1
+                # print('log_prior = %g, log_lik = %g' % (log_prior, log_lik))
         return loss
 
     def train(self, X, y):
-        num_train      = X.shape[0]
-        params      = [{'params': self.nn.nn.parameters(), 'lr': self.lr_weight}, {'params': self.nn.logvar, 'lr': self.lr_noise}]
+        y           = y.view(-1, self.nout)
+        num_train   = X.shape[0]
+        params      = [
+                {'params': self.nn.nn.parameters(), 'lr': self.lr_weight},
+                {'params': self.log_precs,          'lr': self.lr_noise}, 
+                {'params': self.log_lambda,         'lr': self.lr_lambda}]
         self.opt    = SGLD(params, num_burn_in_steps = 0)
         self.loader = DataLoader(TensorDataset(X, y), batch_size = self.batch_size, shuffle = True)
         
-        _ = self.sgld_steps(self.steps_burnin, num_train)
+        _ = self.sgld_steps(self.steps_burnin, num_train) # burn-in
         
         step_cnt = 0
         self.nns = []
@@ -69,7 +98,7 @@ class BNN_SGDMC(nn.Module, BNN):
         while(step_cnt < self.steps):
             loss      = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
-            print('Step %4d, loss = %8.2f, noise_var = %.2f' % (step_cnt, loss, stable_noise_var(self.nn.logvar)),flush = True)
+            print('Step %4d, loss = %8.2f' % (step_cnt, loss),flush = True)
             self.nns.append(deepcopy(self.nn))
         print('Number of samples: %d' % len(self.nns))
 
@@ -91,4 +120,4 @@ class BNN_SGDMC(nn.Module, BNN):
         return pred, prec
 
     def report(self):
-        print(self.nn)
+        print(self.nn.nn)

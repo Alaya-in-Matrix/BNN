@@ -42,6 +42,7 @@ class BNN(ABC):
         return rmse, nll_gaussian, -1 * lls.mean()
 
     def predict_mv(self, input, nn_samples):
+        assert(self.nout == 1)
         num_test     = input.shape[0]
         preds, precs = self.sample_predict(nn_samples, input)
         noise_vars   = 1 / precs
