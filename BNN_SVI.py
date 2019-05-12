@@ -73,7 +73,7 @@ class BNN_SVI(BNN):
         for i in range(len(nns)):
             pred[i] = nns[i](X).squeeze()
         precs = torch.ones(pred.shape) / (self.fixed_noise**2)
-        return pred, precs
+        return pred
 
     def report(self):
         print(self.nn)

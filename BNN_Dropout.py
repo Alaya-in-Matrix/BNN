@@ -81,9 +81,7 @@ class BNN_Dropout(BNN):
         prec  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
             pred[i] = self.nn(X).squeeze()
-            # pred[i] = nns[i](X).squeeze()
-        prec = torch.ones(pred.shape) / (self.noise_level**2)
-        return pred, prec
+        return pred
 
     def report(self):
         print(self.nn)

@@ -30,10 +30,10 @@ class BNN_SGDMC(nn.Module, BNN):
         self.lr_weight = conf.get('lr_weight', 1e-3)
         self.lr_noise  = conf.get('lr_noise ', 1e-5)
         self.lr_lambda = conf.get('lr_lambda', 1e-4)
-        self.alpha_w   = torch.as_tensor(conf.get('alpha_w', 0.1))
-        self.beta_w    = torch.as_tensor(conf.get('beta_w',  0.001))
-        self.alpha_n   = torch.as_tensor(conf.get('alpha_n', 10.))
-        self.beta_n    = torch.as_tensor(conf.get('beta_w',  0.4))
+        self.alpha_w   = torch.as_tensor(1.* conf.get('alpha_w', 20.))
+        self.beta_w    = torch.as_tensor(1.* conf.get('beta_w',  20.))
+        self.alpha_n   = torch.as_tensor(1.* conf.get('alpha_n', 20.))
+        self.beta_n    = torch.as_tensor(1.* conf.get('beta_w',  20.))
 
         self.prior_log_lambda    = TransformedDistribution(Gamma(self.alpha_w, self.beta_w), ExpTransform().inv) # log of gamma distribution
         self.prior_log_precision = TransformedDistribution(Gamma(self.alpha_n, self.beta_n), ExpTransform().inv)
@@ -104,20 +104,15 @@ class BNN_SGDMC(nn.Module, BNN):
 
     def sample(self, num_samples = 1):
         assert(num_samples <= len(self.nns))
-        return self.nns[:num_samples]
+        return np.random.permutation(self.nns)[:num_samples]
 
-    def sample_predict(self, nns, X):
-        num_x = X.shape[0]
-        pred  = torch.zeros(len(nns), num_x)
-        prec  = torch.zeros(len(nns), num_x)
-        for i in range(len(nns)):
-            nn_out    = nns[i](X)
-            py        = nn_out[:, 0]
-            logvar    = nn_out[:, 1]
-            noise_var = stable_noise_var(logvar)
-            pred[i]   = py
-            prec[i]   = 1 / noise_var
-        return pred, prec
+    def sample_predict(self, nns, input):
+        num_samples = len(nns)
+        num_x       = input.shape[0]
+        pred        = torch.empty(num_samples, num_x, self.nout)
+        for i in range(num_samples):
+            pred[i] = nns[i](input)
+        return pred
 
     def report(self):
         print(self.nn.nn)

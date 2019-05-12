@@ -64,20 +64,18 @@ def uci(dataset, split_id):
     conf['steps_burnin'] = 2500
     conf['steps']        = 2500
     conf['keep_every']   = 50
-    conf['logvar_std']   = 10
 
-    conf['lr_weight']   = 1e-2
-    conf['lr_noise']    = 3e-3
-    conf['weight_std']  = 0.5
-    conf['logvar_mean'] = -5
-     
+    conf['lr_weight'] = 1e-2
+
     model = BNN_SGDMC(train_x.shape[1], nn.Tanh(), num_hiddens = [n_hiddens, n_hiddens], conf = conf)
     model.train(train_x, train_y)
     model.report()
-    rmse, nll_gaussian,nll = model.validate(test_x, test_y, num_samples=50)
+    rmse, nll = model.validate(test_x, test_y, num_samples=50)
     smse = rmse**2 / torch.mean((test_y - train_y.mean())**2)
-    print('RMSE = %g, SMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, smse, nll_gaussian, nll), flush = True)
-    return rmse, nll_gaussian, nll
+    print('RMSE = %g, SMSE = %g, NLL = %6.3f' % (rmse, smse, nll), flush = True)
+    print('Model  precision: %g' % (model.log_precs.exp()))
+    print('Weight precision: %g' % (model.log_lambda.exp()))
+    return rmse, nll
 
 ds = [
   'bostonHousing'

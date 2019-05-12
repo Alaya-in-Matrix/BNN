@@ -144,8 +144,7 @@ class BNN_BBB(BNN):
         for i in range(len(nns)):
             py      = nns[i](X).squeeze()
             pred[i] = py
-        prec = torch.ones(pred.shape) /  stable_noise_var(self.logvar)
-        return pred, prec
+        return pred
 
     def report(self):
         print(self.nn)

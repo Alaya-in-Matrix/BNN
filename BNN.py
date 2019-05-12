@@ -22,28 +22,16 @@ class BNN(ABC):
         """
         pass
 
-    @abstractmethod
-    def sample_predict(self, nns, input):
-        pass
-
     def validate(self, X, y, num_samples = 20):
+        y = y.view(X.shape[0], -1)
         with torch.no_grad():
-            nn_samples   = self.sample(num_samples)
-            num_test     = X.shape[0]
-            y            = y.reshape(num_test)
-            preds, precs = self.sample_predict(nn_samples, X)
-            noise_vars   = 1 / precs
-            py           = preds.mean(dim = 0)
-            pv           = preds.var(dim = 0) + noise_vars.mean()
-            rmse         = torch.sqrt(torch.mean((py - y)**2))
-            nll_gaussian = -1 * torch.distributions.Normal(py, pv.sqrt()).log_prob(y).mean()
-            normed       = (y - preds) / noise_vars.sqrt().mean()
-            lls          = torch.logsumexp(-0.5 * normed**2 - 0.5 * torch.log(2 * np.pi * noise_vars.unsqueeze(1)), dim = 0) - np.log(num_samples)
-        return rmse, nll_gaussian, -1 * lls.mean()
+            nns    = self.sample(num_samples)
+            py, pv = self.predict_mv(X, nns)
+            rmse   = torch.mean((py - y)**2, dim = 0).sqrt()
+            nll    = -1 * torch.distributions.Normal(py, pv.sqrt()).log_prob(y).mean(dim = 0)
+        return rmse, nll
 
     def predict_mv(self, input, nn_samples):
-        assert(self.nout == 1)
-        num_test     = input.shape[0]
-        preds, precs = self.sample_predict(nn_samples, input)
-        noise_vars   = 1 / precs
-        return preds.mean(dim = 0), preds.var(dim = 0) + noise_vars.mean(dim=0)
+        num_test = input.shape[0]
+        preds    = self.sample_predict(nn_samples, input).view(len(nn_samples), num_test, -1)
+        return preds.mean(dim = 0), preds.var(dim = 0)

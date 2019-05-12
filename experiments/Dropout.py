@@ -70,10 +70,10 @@ def uci(dataset, split_id):
    model = BNN_Dropout(train_x.shape[1], nn.Tanh(), num_hiddens = [n_hiddens, n_hiddens], conf = conf)
    model.train(train_x, train_y)
    model.report()
-   rmse, nll_gaussian,nll = model.validate(test_x, test_y, num_samples=100)
+   rmse, nll = model.validate(test_x, test_y, num_samples=100)
    smse = rmse**2 / torch.mean((test_y - train_y.mean())**2)
-   print('RMSE = %g, SMSE = %g, NLL_gaussian = %6.3f, NLL = %6.3f' % (rmse, smse, nll_gaussian, nll), flush = True)
-   return rmse, nll_gaussian, nll
+   print('RMSE = %g, SMSE = %g, NLL = %6.3f' % (rmse, smse, nll), flush = True)
+   return rmse, nll
 
 ds = [
   'bostonHousing'
