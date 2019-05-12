@@ -66,8 +66,8 @@ def uci(dataset, split_id):
     conf['keep_every']   = 50
     conf['logvar_std']   = 10
 
-    conf['lr_weight']   = 0.1
-    conf['lr_noise']    = 1e-4
+    conf['lr_weight']   = 1e-2
+    conf['lr_noise']    = 3e-3
     conf['weight_std']  = 0.5
     conf['logvar_mean'] = -5
      
