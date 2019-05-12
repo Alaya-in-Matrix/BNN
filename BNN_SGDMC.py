@@ -54,7 +54,7 @@ class BNN_SGDMC(nn.Module, BNN):
 
         lambd = self.log_lambda.exp()
         for n, p in self.nn.nn.named_parameters():
-            if "weight" in p:
+            if "weight" in n:
                 log_p += -0.5 * lambd * torch.sum(p**2) + 0.5 * p.numel() * (self.log_lambda - np.log(2 * np.pi))
         return log_p
 
