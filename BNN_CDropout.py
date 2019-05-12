@@ -19,8 +19,6 @@ class CDropout(nn.Module):
         return clamp_probs(torch.sigmoid(self.p_logit))
 
     def forward(self, input):
-        # bdist = StableRelaxedBernoulli(probs = 1 - self.dropout_rate(), temperature = 0.1)
-        # return input * bdist.rsample(input.shape)
         p = self.dropout_rate()
         eps        = 1e-7
         temp       = 0.1
@@ -104,14 +102,14 @@ class BNN_CDropout(BNN):
         self.batch_size  = conf.get('batch_size',   32)
         self.print_every = conf.get('print_every',  100)
         self.normalize   = conf.get('normalize',    True)
-        self.fixed_noise = conf.get('fixed_noise',  None)
+        self.min_noise   = conf.get('min_noise',    0.)
 
         self.lr          = conf.get('lr',       1e-2)
         self.lscale      = conf.get('lscale',   1e-1)  # prior for weight: w ~ N(0, I/lscale^2)
-        self.dr          = conf.get('dr',       1.)    # XXX: this hyper-parameter shouldn't exist in a full bayesian setting with fixed noise
+        self.dr          = conf.get('dr',       2.)    # XXX: this hyper-parameter shouldn't exist in a full bayesian setting
 
         self.nn          = NN_CDropout(dim, self.act, self.num_hiddens)
-        self.noise_level = 1. if self.fixed_noise is None else self.fixed_noise
+        self.noise_level = 1.
 
     def train(self, X, y):
         num_train        = X.shape[0]
@@ -136,8 +134,7 @@ class BNN_CDropout(BNN):
                 epoch_mse  += mse_loss
                 epoch_wreg += wreg
                 epoch_ent  += ent
-            if self.fixed_noise is None:
-                self.noise_level = np.sqrt(epoch_mse.detach().numpy() / num_train)
+            self.noise_level = max(self.min_noise, np.sqrt(epoch_mse.detach().numpy() / num_train))
             if (epoch + 1) % self.print_every == 0:
                 print("Epoch %4d, mse = %g, noise = %g, wreg = %g, -entropy = %g" % (epoch+1, epoch_mse / num_train, self.noise_level, epoch_wreg / num_train, -1 * epoch_ent / num_train))
     
