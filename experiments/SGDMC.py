@@ -61,11 +61,17 @@ def uci(dataset, split_id):
     conf['num_epochs']  = 100*n_epochs # XXX: 10x, not 100x
     conf['batch_size']  = 128          # XXX: 32, not 128
 
-    conf['steps_burnin'] = 5000
-    conf['steps']        = 5000
-    conf['keep_every']   = 100
+    conf['steps_burnin'] = 2500
+    conf['steps']        = 2500
+    conf['keep_every']   = 50
+    conf['logvar_std']   = 10
+
+    conf['lr_weight']   = 0.1
+    conf['lr_noise']    = 1e-4
+    conf['weight_std']  = 0.5
+    conf['logvar_mean'] = -5
      
-    model = BNN_SGDMC(train_x.shape[1], nn.ReLU(), num_hiddens = [n_hiddens, n_hiddens], conf = conf)
+    model = BNN_SGDMC(train_x.shape[1], nn.Tanh(), num_hiddens = [n_hiddens, n_hiddens], conf = conf)
     model.train(train_x, train_y)
     model.report()
     rmse, nll_gaussian,nll = model.validate(test_x, test_y, num_samples=50)
