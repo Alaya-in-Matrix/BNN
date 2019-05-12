@@ -84,16 +84,12 @@ class BNN_BBB(BNN):
         self.lr_weight   = conf.get('lr_weight',    1e-2)
         self.lr_noise    = conf.get('lr_noise',     1e-2)
         self.weight_std  = conf.get('weight_std',   0.2)
-        self.fixed_noise = conf.get('fixed_noise',  None)
 
         self.w_prior = torch.distributions.Normal(torch.zeros(1), self.weight_std*torch.ones(1))
         self.nn      = BayesianNN(dim, self.act, self.num_hiddens)
         self.X       = None
         self.y       = None
-        if self.fixed_noise is None:
-            self.logvar  = nn.Parameter(torch.tensor(-2.))
-        else:
-            self.logvar = torch.log(torch.tensor(self.fixed_noise**2).exp() - 1)
+        self.logvar  = nn.Parameter(torch.tensor(-2.))
 
     def loss(self, X, y):
         num_x       = X.shape[0]
