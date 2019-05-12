@@ -29,12 +29,12 @@ class BNN_Dropout(BNN):
         self.num_epochs   = conf.get('num_epochs',   400)
         self.batch_size   = conf.get('batch_size',   32)
         self.print_every  = conf.get('print_every',  100)
-        self.fixed_noise  = conf.get('fixed_noise',  None) # only used to calculate NLL!
         self.dropout_rate = conf.get('dropout_rate', 0.05)
+        self.min_noise    = conf.get('min_noise',    0.) # a minimum noise level
         self.l2_reg       = conf.get('l2_reg', 1e-6)
         self.lr           = conf.get('lr',     1e-2)
         self.nn           = NN_Dropout(dim, self.act, self.num_hiddens, self.dropout_rate)
-        self.noise_level  = 1. if self.fixed_noise is None else self.fixed_noise
+        self.noise_level  = 1.
 
     def train(self, X, y):
         assert(X.dim() == 2)
@@ -60,10 +60,9 @@ class BNN_Dropout(BNN):
                 loss.backward()
                 opt.step()
                 epoch_loss += loss
+            self.noise_level = max(self.min_noise, np.sqrt(epoch_loss.detach().numpy() / num_train)) # estimation of noise
             if (epoch + 1) % self.print_every == 0:
-                print("[Epoch %5d, loss = %g]" % (epoch + 1, epoch_loss / num_train))
-        if self.fixed_noise is None:
-            self.noise_level = np.sqrt(epoch_loss.detach().numpy() / num_train) # estimation of noise
+                print("[Epoch %5d, loss = %g, noise_level = %g]" % (epoch + 1, epoch_loss / num_train, self.noise_level))
 
     def sample(self, num_samples = 1):
         nns = []
@@ -81,7 +80,8 @@ class BNN_Dropout(BNN):
         pred  = torch.zeros(len(nns), num_x)
         prec  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
-            pred[i] = nns[i](X).squeeze()
+            pred[i] = self.nn(X).squeeze()
+            # pred[i] = nns[i](X).squeeze()
         prec = torch.ones(pred.shape) / (self.noise_level**2)
         return pred, prec
 

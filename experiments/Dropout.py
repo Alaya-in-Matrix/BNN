@@ -61,13 +61,13 @@ def uci(dataset, split_id):
    conf['num_epochs']  = 100*n_epochs # XXX: 10x, not 100x
    conf['batch_size']  = 128          # XXX: 32, not 128
    conf['print_every'] = 100
-   conf['fixed_noise'] = None
+   conf['min_noise']   = np.sqrt(1 / tau)
 
    conf['lr']           = 1e-2
    conf['l2_reg']       = 1e-4
    conf['dropout_rate'] = 0.05
 
-   model = BNN_Dropout(train_x.shape[1], num_hiddens = [n_hiddens], conf = conf)
+   model = BNN_Dropout(train_x.shape[1], nn.Tanh(), num_hiddens = [n_hiddens, n_hiddens], conf = conf)
    model.train(train_x, train_y)
    model.report()
    rmse, nll_gaussian,nll = model.validate(test_x, test_y, num_samples=100)
