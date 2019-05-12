@@ -30,11 +30,11 @@ class BNN_SGDMC(nn.Module, BNN):
         self.lr_weight = conf.get('lr_weight', 1e-2)
         self.lr_noise  = conf.get('lr_noise ', 1e-2)
         self.lr_lambda = conf.get('lr_lambda', 1e-2)
+        self.alpha_w   = torch.as_tensor(conf.get('alpha_w', 6.))
+        self.beta_w    = torch.as_tensor(conf.get('beta_w',  6.))
+        self.alpha_n   = torch.as_tensor(conf.get('alpha_n', 6.))
+        self.beta_n    = torch.as_tensor(conf.get('beta_w',  6.))
 
-        self.alpha_w             = torch.tensor(6.) # w ~ N(0, lambda^-1), lambda ~ Gamma(alpha_w, beta_w)
-        self.beta_w              = torch.tensor(6.)
-        self.alpha_n             = torch.tensor(6.) # precision ~ Gamma(alpha_n, beta_n)
-        self.beta_n              = torch.tensor(6.)
         self.prior_log_lambda    = TransformedDistribution(Gamma(self.alpha_w, self.beta_w), ExpTransform().inv) # log of gamma distribution
         self.prior_log_precision = TransformedDistribution(Gamma(self.alpha_n, self.beta_n), ExpTransform().inv)
 
