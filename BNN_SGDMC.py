@@ -99,7 +99,9 @@ class BNN_SGDMC(nn.Module, BNN):
         while(step_cnt < self.steps):
             loss      = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
-            print('Step %4d, loss = %8.2f' % (step_cnt, loss),flush = True)
+            prec      = self.log_precs.exp().mean()
+            wstd      = 1 / self.log_lambda.exp().sqrt()
+            print('Step %4d, loss = %8.2f, precision = %g, weight_std = %g' % (step_cnt, loss, prec, wstd),flush = True)
             self.nns.append(deepcopy(self.nn))
         print('Number of samples: %d' % len(self.nns))
 
