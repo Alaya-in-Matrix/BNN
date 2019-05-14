@@ -80,7 +80,7 @@ class BNN_Dropout(BNN):
         pred  = torch.zeros(len(nns), num_x)
         prec  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
-            pred[i] = self.nn(X).squeeze()
+            pred[i] = nns[i](X).squeeze()
         return pred
 
     def report(self):
