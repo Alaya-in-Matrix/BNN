@@ -19,7 +19,7 @@ class BNN_SVI(BNN):
         self.print_every = conf.get('print_every',  100)
         self.lr          = conf.get('lr',           1e-2)
         self.weight_std  = conf.get('weight_std',   1.0)
-        self.fixed_noise = conf.get('fixed_noise',  None)
+        self.noise_level = conf.get('noise_level',  None)
         self.nn          = NN(dim, self.act, self.num_hiddens, nout = 1)
 
     def model(self, X, y):
@@ -35,7 +35,7 @@ class BNN_SVI(BNN):
         lifted_reg_model = lifted_module()
         with pyro.plate("map", len(X), subsample_size = min(num_x, self.batch_size)) as ind:
             pred = lifted_reg_model(X[ind]).squeeze(-1)
-            pyro.sample("obs", pyro.distributions.Normal(pred, self.fixed_noise), obs = y[ind])
+            pyro.sample("obs", pyro.distributions.Normal(pred, self.noise_level), obs = y[ind])
 
     def guide(self, X, y):
         priors   = dict()
@@ -48,9 +48,9 @@ class BNN_SVI(BNN):
         return lifted_module()
 
     def train(self, X, y):
-        if self.fixed_noise is None:
+        if self.noise_level is None:
             print("No noise level provided, use noise_level = 0.05 * y.std()")
-            self.fixed_noise = 0.05 * y.std()
+            self.noise_level = 0.05 * y.std()
         num_train         = X.shape[0]
         y                 = y.reshape(num_train)
         optim             = pyro.optim.Adam({"lr":self.lr})
@@ -72,7 +72,7 @@ class BNN_SVI(BNN):
         pred  = torch.zeros(len(nns), num_x)
         for i in range(len(nns)):
             pred[i] = nns[i](X).squeeze()
-        precs = torch.ones(pred.shape) / (self.fixed_noise**2)
+        precs = torch.ones(pred.shape) / (self.noise_level**2)
         return pred
 
     def report(self):

@@ -83,11 +83,10 @@ class BNN_BBB(BNN):
 
         self.lr          = conf.get('lr',           1e-2)
         self.weight_std  = conf.get('weight_std',   1.)
-        self.noise_level = conf.get('noise_level',  0.1)
+        self.noise_level = conf.get('noise_level',  None)
 
         self.w_prior = torch.distributions.Normal(torch.zeros(1), self.weight_std*torch.ones(1))
         self.nn      = BayesianNN(dim, self.act, self.num_hiddens)
-        self.logvar  = torch.log(torch.tensor(self.noise_level**2).exp() - 1)
 
     def loss(self, X, y):
         num_x       = X.shape[0]
@@ -105,11 +104,12 @@ class BNN_BBB(BNN):
         return log_lik, kl_term
 
     def train(self, X, y):
-        num_x   = X.shape[0]
-        X       = X.reshape(num_x, self.dim)
-        y       = y.reshape(num_x)
-        dataset = TensorDataset(X, y)
-        loader  = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
+        self.logvar = torch.log(torch.tensor(self.noise_level**2).exp() - 1)
+        num_x       = X.shape[0]
+        X           = X.reshape(num_x, self.dim)
+        y           = y.reshape(num_x)
+        dataset     = TensorDataset(X, y)
+        loader      = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
 
         opt = torch.optim.Adam(self.nn.parameters(), self.lr)
         for epoch in range(self.num_epochs):
