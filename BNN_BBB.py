@@ -104,6 +104,9 @@ class BNN_BBB(BNN):
         return log_lik, kl_term
 
     def train(self, X, y):
+        if self.noise_level is None:
+            print("No noise level provided, use noise_level = 0.05 * y.std()")
+            self.noise_level = 0.05 * y.std()
         self.logvar = torch.log(torch.tensor(self.noise_level**2).exp() - 1)
         num_x       = X.shape[0]
         X           = X.reshape(num_x, self.dim)
