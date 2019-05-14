@@ -18,3 +18,4 @@ Implemented:
 - Neural process
 - Stein Variational Gradient Descent
 - Particle mirror descent
+- SGLD with (stochastic) MH testing
