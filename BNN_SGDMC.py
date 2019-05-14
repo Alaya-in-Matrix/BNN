@@ -27,13 +27,20 @@ class BNN_SGDMC(nn.Module, BNN):
         self.keep_every   = conf.get('keep_every',   50)
         self.batch_size   = conf.get('batch_size',   32)
 
-        self.lr_weight = conf.get('lr_weight', 1e-3)
-        self.lr_noise  = conf.get('lr_noise',  1e-3)
-        self.lr_lambda = conf.get('lr_lambda', 1e-3)
-        self.alpha_w   = torch.as_tensor(1.* conf.get('alpha_w', 6.))
-        self.beta_w    = torch.as_tensor(1.* conf.get('beta_w',  6.))
-        self.alpha_n   = torch.as_tensor(1.* conf.get('alpha_n', 10.))
-        self.beta_n    = torch.as_tensor(1.* conf.get('beta_n',  1.))
+        self.lr_weight   = conf.get('lr_weight', 1e-3)
+        self.lr_noise    = conf.get('lr_noise',  1e-3)
+        self.lr_lambda   = conf.get('lr_lambda', 1e-3)
+        self.alpha_w     = torch.as_tensor(1.* conf.get('alpha_w', 6.))
+        self.beta_w      = torch.as_tensor(1.* conf.get('beta_w',  6.))
+        self.alpha_n     = torch.as_tensor(1.* conf.get('alpha_n', 10.))
+        self.beta_n      = torch.as_tensor(1.* conf.get('beta_n',  1.))
+        self.noise_level = conf.get('noise_level', None)
+        if self.noise_level is not None:
+            prec         = 1 / self.noise_level**2
+            prec_var     = (prec * 0.25)**2
+            self.beta_n  = torch.as_tensor(prec / prec_var)
+            self.alpha_n = torch.as_tensor(prec * self.beta_n)
+            print("Reset alpha_n = %g, beta_n = %g" % (self.alpha_n, self.beta_n))
 
         self.prior_log_lambda    = TransformedDistribution(Gamma(self.alpha_w, self.beta_w), ExpTransform().inv) # log of gamma distribution
         self.prior_log_precision = TransformedDistribution(Gamma(self.alpha_n, self.beta_n), ExpTransform().inv)

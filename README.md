@@ -9,6 +9,8 @@ Implemented:
 - SVI (from pyro) 
 - BBB
 
+![](./img/sinc_1.png)
+
 
 ## TODO
 
