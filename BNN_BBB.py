@@ -81,15 +81,13 @@ class BNN_BBB(BNN):
         self.batch_size  = conf.get('batch_size',   32)
         self.print_every = conf.get('print_every',  100)
 
-        self.lr_weight   = conf.get('lr_weight',    1e-2)
-        self.lr_noise    = conf.get('lr_noise',     1e-2)
-        self.weight_std  = conf.get('weight_std',   0.2)
+        self.lr          = conf.get('lr',           1e-2)
+        self.weight_std  = conf.get('weight_std',   1.)
+        self.noise_level = conf.get('noise_level',  0.1)
 
         self.w_prior = torch.distributions.Normal(torch.zeros(1), self.weight_std*torch.ones(1))
         self.nn      = BayesianNN(dim, self.act, self.num_hiddens)
-        self.X       = None
-        self.y       = None
-        self.logvar  = nn.Parameter(torch.tensor(-2.))
+        self.logvar  = torch.log(torch.tensor(self.noise_level**2).exp() - 1)
 
     def loss(self, X, y):
         num_x       = X.shape[0]
@@ -112,13 +110,8 @@ class BNN_BBB(BNN):
         y       = y.reshape(num_x)
         dataset = TensorDataset(X, y)
         loader  = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
-        param_dict = dict()
-        param_dict['logvar'] = self.logvar
-        param_dict['nn'] = self.nn.parameters()
 
-        dict_logvar = {"params": self.logvar,          'lr': self.lr_noise}
-        dict_nn     = {"params": self.nn.parameters(), 'lr': self.lr_weight}
-        opt         = torch.optim.Adam([dict_logvar, dict_nn])
+        opt = torch.optim.Adam(self.nn.parameters(), self.lr)
         for epoch in range(self.num_epochs):
             epoch_kl  = 0.
             epoch_lik = 0.
