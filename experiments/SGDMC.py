@@ -53,9 +53,10 @@ def uci(dataset, split_id):
         print("Invalid split_id")
         return np.nan, np.nan, np.nan, np.nan
     print('Dataset %s, split: %d, n_hiddens: %d, prec: %g' % (dataset, split_id, n_hiddens, tau))
-    xm, xs, _, _ = normalize(train_x, train_y)
+    xm, xs, ym, ys = normalize(train_x, train_y)
     train_x = (train_x - xm) / xs
     test_x  = (test_x  - xm) / xs
+    train_y = (train_y - ym) / ys
 
     conf                = dict()
     conf['num_epochs']  = 100*n_epochs # XXX: 10x, not 100x
@@ -65,12 +66,44 @@ def uci(dataset, split_id):
     conf['steps']        = 2500
     conf['keep_every']   = 50
 
-    conf['lr_weight'] = 1e-2
+    log10_lr_weight = -2.38928115427777321
+    log10_lr_noise  = -1
+    log10_lr_lambda = -5
+    log10_alpha_w   = 0.346474921454162921
+    log10_beta_w    = 3
+    log10_alpha_n   = 3
+    log10_beta_n    = 1.00109289876555185
+
+    conf['lr_weight'] = 10**log10_lr_weight
+    conf['lr_noise']  = 10**log10_lr_noise 
+    conf['lr_lambda'] = 10**log10_lr_lambda
+    conf['alpha_w']   = 10**log10_alpha_w  
+    conf['beta_w']    = 10**log10_beta_w   
+    conf['alpha_n']   = 10**log10_alpha_n  
+    conf['beta_n']    = 10**log10_beta_n   
+
+
+    for k in conf:
+        print('%-20s:%g' %(k,conf[k]))
 
     model = BNN_SGDMC(train_x.shape[1], nn.Tanh(), num_hiddens = [n_hiddens, n_hiddens], conf = conf)
     model.train(train_x, train_y)
     model.report()
-    rmse, nll = model.validate(test_x, test_y, num_samples=50)
+    with torch.no_grad():
+        preds = model.sample_predict(model.nns,test_x) * ys + ym
+    py = preds.mean(dim = 0).squeeze()
+    pv = preds.var(dim = 0).squeeze() + ys**2 / model.log_precs.exp().squeeze().detach()
+    ps = pv.sqrt()
+    print(py.shape)
+    print(ps.shape)
+    print(test_y.shape)
+
+    err = (py - test_y).squeeze()
+    mse = torch.mean(err**2)
+    rmse = mse.sqrt()
+    nll = -1 * torch.distributions.Normal(py,ps).log_prob(test_y.squeeze()).mean()
+
+    #rmse, nll = model.validate(test_x, test_y, num_samples=50)
     smse = rmse**2 / torch.mean((test_y - train_y.mean())**2)
     print('RMSE = %g, SMSE = %g, NLL = %6.3f' % (rmse, smse, nll), flush = True)
     print('Model  precision: %g' % (model.log_precs.exp()))
@@ -89,8 +122,6 @@ ds = [
 , 'yacht'
 
 ]
-
-ds = ['bostonHousing']
 
 stat = dict()
 from multiprocessing import Pool
