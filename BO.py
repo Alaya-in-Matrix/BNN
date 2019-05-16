@@ -2,6 +2,7 @@ import torch
 import torch.nn
 import numpy as np
 from BNN_SGDMC import BNN_SGDMC
+from platypus import NSGAII, MOEAD, CMAES, Problem, Real, SPEA2, NSGAIII, Solution, InjectedPopulation, Archive
 
 class BO:
     def __init__(f, lb, ub, nobj, ncons, max_eval = 2, num_init = 1, conf = {}):
@@ -33,9 +34,35 @@ class BO:
     def train(self):
         X, y = self.normalize(self.X, self.y)
         self.bnn.train(X, y)
-
+    
     def nn_opt(self, nn):
-        pass
+        with torch.no_grad():
+            def obj_cons(x):
+                tx  = torch.tensor(x)
+                out = nn(tx)
+                return out[:self.nobj].numpy().tolist(), out[self.nobj:].numpy().tolist()
+            def obj_ucons(x):
+                tx  = torch.tensor(x)
+                return nn(tx).numpy().tolist()
+
+            arch          = Archive()
+            if self.ncons == 0:
+                prob          = Problem(self.dim, self.nobj)
+                prob.function = obj_ucons
+            else:
+                prob                = Problem(self.dim, self.nobj, self.ncons)
+                prob.function       = obj_cons
+                prob.constraints[:] = "<=0"
+            prob.types[:] = [Real(self.lb[i], self.ub[i]) for i in range(self.dim)]
+            algo          = CMAES(prob, population = 100, archive = arch)
+            def cb(a):
+                print(a.nfe, len(a.archive), flush=True)
+            algo.run(100, callback = cb)
+
+            optimized = algorithm.population
+            rand_idx  = np.random.randint(len(optimized))
+            suggested = torch.tensor(optimized[rand_idx].variables)
+            return suggested
     
     def bo_iter(self, num_samples = 1):
         assert(num_samples <= self.bnn.num_samples)
