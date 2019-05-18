@@ -17,7 +17,6 @@ class NN(nn.Module):
         for l in self.nn:
             if type(l) == nn.Linear:
                 nn.init.xavier_uniform_(l.weight)
-                nn.init.zeros_(l.bias)
     
     def mlp(self):
         layers  = []

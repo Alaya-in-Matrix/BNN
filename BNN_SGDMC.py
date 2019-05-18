@@ -26,6 +26,7 @@ class BNN_SGDMC(nn.Module, BNN):
         self.steps        = conf.get('steps',        2500)
         self.keep_every   = conf.get('keep_every',   50)
         self.batch_size   = conf.get('batch_size',   32)
+        self.warm_start   = conf.get('warm_start',   False)
 
         self.lr_weight   = conf.get('lr_weight', 1e-3)
         self.lr_noise    = conf.get('lr_noise',  1e-3)
@@ -54,6 +55,10 @@ class BNN_SGDMC(nn.Module, BNN):
     def init_nn(self):
         self.log_lambda.data = self.prior_log_lambda.sample()
         self.log_precs.data  = self.prior_log_precision.sample((self.nout, ))
+        for layer in self.nn.nn:
+            if isinstance(layer, nn.Linear):
+                layer.weight.data = torch.distributions.Normal(0, 1/self.log_lambda.exp().sqrt()).sample(layer.weight.shape)
+                layer.bias.data   = torch.zeros(layer.bias.shape)
 
     def log_prior(self):
         log_p  = self.prior_log_lambda.log_prob(self.log_lambda).sum()
@@ -95,12 +100,14 @@ class BNN_SGDMC(nn.Module, BNN):
                 {'params': self.log_lambda,         'lr': self.lr_lambda}]
         self.opt    = SGLD(params, num_burn_in_steps = 0)
         self.loader = DataLoader(TensorDataset(X, y), batch_size = self.batch_size, shuffle = True)
+        step_cnt    = 0
+        self.nns    = []
+        self.lrs    = []
+        if not self.warm_start:
+            self.init_nn()
         
         _ = self.sgld_steps(self.steps_burnin, num_train) # burn-in
         
-        step_cnt = 0
-        self.nns = []
-        self.lrs = []
         while(step_cnt < self.steps):
             loss      = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
