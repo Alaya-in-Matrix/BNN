@@ -66,21 +66,13 @@ def uci(dataset, split_id):
     conf['steps']        = 2500
     conf['keep_every']   = 50
 
-    log10_lr_weight = -2.38928115427777321
-    log10_lr_noise  = -1
-    log10_lr_lambda = -5
-    log10_alpha_w   = 0.346474921454162921
-    log10_beta_w    = 3
-    log10_alpha_n   = 3
-    log10_beta_n    = 1.00109289876555185
-
-    conf['lr_weight'] = 10**log10_lr_weight
-    conf['lr_noise']  = 10**log10_lr_noise 
-    conf['lr_lambda'] = 10**log10_lr_lambda
-    conf['alpha_w']   = 10**log10_alpha_w  
-    conf['beta_w']    = 10**log10_beta_w   
-    conf['alpha_n']   = 10**log10_alpha_n  
-    conf['beta_n']    = 10**log10_beta_n   
+    conf['lr_weight'] = 1e-3
+    conf['lr_noise']  = 1e-3
+    conf['lr_lambda'] = 1e-3
+    conf['alpha_w']   = 6.
+    conf['beta_w']    = 6.
+    conf['alpha_n']   = 6.
+    conf['beta_n']    = 6.
 
 
     for k in conf:
