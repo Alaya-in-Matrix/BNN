@@ -66,13 +66,13 @@ def uci(dataset, split_id):
     conf['steps']        = 2500
     conf['keep_every']   = 50
 
-    conf['lr_weight'] = 1e-2
-    conf['lr_noise']  = 1e-2
-    conf['lr_lambda'] = 1e-2
-    conf['alpha_w']   = 6.
-    conf['beta_w']    = 6.
-    conf['alpha_n']   = 6.
-    conf['beta_n']    = 6.
+    conf['lr_weight'] = 2.6e-3
+    conf['lr_noise']  = 1.9e-2
+    conf['lr_lambda'] = 1.2e-2
+    conf['alpha_w']   = 63
+    conf['beta_w']    = 1.2
+    conf['alpha_n']   = 0.51
+    conf['beta_n']    = 0.40
 
 
     for k in conf:

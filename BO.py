@@ -16,8 +16,8 @@ class BO:
         self.nobj     = nobj
         self.ncons    = ncons
         self.max_eval = max_eval
-        self.lb       = torch.tensor(-1.)
-        self.ub       = torch.tensor(1.)
+        self.lb       = -1 * torch.tensor(3.).sqrt()
+        self.ub       = torch.tensor(3.).sqrt() ## XXX: Uniform(-sqrt(3), sqrt(3)).variance = 1
         self.bnn      = BNN_SGDMC(self.dim, act = act, num_hiddens = num_hiddens, conf = conf)
         self.X        = torch.rand(num_init, self.dim) * (self.ub - self.lb) + self.lb
         self.y        = self.f(self.X)
@@ -29,7 +29,7 @@ class BO:
         assert(self.nobj + self.ncons == 1)
         xs = torch.linspace(self.lb, self.ub, 100).view(-1,1)
         with torch.no_grad():
-            pred = self.bnn.sample_predict(self.bnn.nns, xs)
+            pred = self.bnn.sample_predict(self.bnn.nns, xs) * self.y.std(dim=0) + self.y.mean(dim = 0)
             pred = pred
         plt.plot(xs.numpy(), pred.squeeze().t().numpy(), 'g', alpha = 0.1)
         plt.plot(xs.numpy(), pred[nn_idxs].squeeze().t().numpy(), 'r')
@@ -38,7 +38,7 @@ class BO:
         plt.show()
 
     def train(self):
-        self.bnn.train(self.X, self.y)
+        self.bnn.train(self.X, (self.y - self.y.mean(dim = 0)) / self.y.std(dim=0))
         for nn in self.bnn.nns:
             for p in nn.parameters():
                 p.requires_grad = False
