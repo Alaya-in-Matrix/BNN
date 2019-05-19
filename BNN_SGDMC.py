@@ -13,6 +13,8 @@ from BNN  import BNN
 from torch.utils.data import TensorDataset, DataLoader
 from pybnn.sampler.sgld import SGLD
 from pybnn.sampler.preconditioned_sgld import PreconditionedSGLD as pSGLD
+from pybnn.sampler.sghmc import SGHMC as SGHMC
+from pybnn.sampler.adaptive_sghmc import AdaptiveSGHMC as aSGHMC
 
 class BNN_SGDMC(nn.Module, BNN):
     def __init__(self, dim, act = nn.ReLU(), num_hiddens = [50], nout = 1, conf = dict()):
@@ -33,8 +35,8 @@ class BNN_SGDMC(nn.Module, BNN):
         self.lr_lambda   = np.float32(conf.get('lr_lambda', 1e-3))
         self.alpha_w     = torch.as_tensor(1.* conf.get('alpha_w', 6.))
         self.beta_w      = torch.as_tensor(1.* conf.get('beta_w',  6.))
-        self.alpha_n     = torch.as_tensor(1.* conf.get('alpha_n', 10.))
-        self.beta_n      = torch.as_tensor(1.* conf.get('beta_n',  1.))
+        self.alpha_n     = torch.as_tensor(1.* conf.get('alpha_n', 6.))
+        self.beta_n      = torch.as_tensor(1.* conf.get('beta_n',  6.))
         self.noise_level = conf.get('noise_level', None)
         if self.noise_level is not None:
             prec         = 1 / self.noise_level**2
@@ -90,6 +92,8 @@ class BNN_SGDMC(nn.Module, BNN):
                 self.opt.step()
                 self.scheduler.step()
                 step_cnt += 1
+                if step_cnt >= num_steps:
+                    break
         return loss
 
     def train(self, X, y):
@@ -99,8 +103,13 @@ class BNN_SGDMC(nn.Module, BNN):
                 {'params': self.nn.nn.parameters(), 'lr': self.lr_weight},
                 {'params': self.log_precs,          'lr': self.lr_noise}, 
                 {'params': self.log_lambda,         'lr': self.lr_lambda}]
-        self.opt       = SGLD(params)
+        # self.opt       = aSGHMC(params, num_burn_in_steps = self.steps_burnin)
+        # self.scheduler = optim.lr_scheduler.LambdaLR(self.opt, lambda iter : np.float32(1.))
+
+        self.opt       = pSGLD(params)
         self.scheduler = optim.lr_scheduler.LambdaLR(self.opt, lambda iter : np.float32((1 + iter)**-0.33))
+
+
         self.loader    = DataLoader(TensorDataset(X, y), batch_size = self.batch_size, shuffle = True)
         step_cnt    = 0
         self.nns    = []

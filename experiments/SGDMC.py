@@ -66,9 +66,9 @@ def uci(dataset, split_id):
     conf['steps']        = 2500
     conf['keep_every']   = 50
 
-    conf['lr_weight'] = 1e-3
-    conf['lr_noise']  = 1e-3
-    conf['lr_lambda'] = 1e-3
+    conf['lr_weight'] = 1e-2
+    conf['lr_noise']  = 1e-2
+    conf['lr_lambda'] = 1e-2
     conf['alpha_w']   = 6.
     conf['beta_w']    = 6.
     conf['alpha_n']   = 6.
