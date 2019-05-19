@@ -29,10 +29,11 @@ class BNN_SGDMC(nn.Module, BNN):
         self.keep_every   = conf.get('keep_every',   50)
         self.batch_size   = conf.get('batch_size',   32)
         self.warm_start   = conf.get('warm_start',   False)
+        self.fix_wprior   = conf.get('fix_wprior', True)
 
-        self.lr_weight   = np.float32(conf.get('lr_weight', 1e-3))
-        self.lr_noise    = np.float32(conf.get('lr_noise',  1e-3))
-        self.lr_lambda   = np.float32(conf.get('lr_lambda', 1e-3))
+        self.lr_weight   = conf.get('lr_weight', 1e-3)
+        self.lr_noise    = conf.get('lr_noise',  1e-3)
+        self.lr_lambda   = conf.get('lr_lambda', 1e-3)
         self.alpha_w     = torch.as_tensor(1.* conf.get('alpha_w', 6.))
         self.beta_w      = torch.as_tensor(1.* conf.get('beta_w',  6.))
         self.alpha_n     = torch.as_tensor(1.* conf.get('alpha_n', 6.))
@@ -53,10 +54,13 @@ class BNN_SGDMC(nn.Module, BNN):
         self.nn         = NN(dim, self.act, self.num_hiddens, self.nout)
         
         self.init_nn()
+        if self.fix_wprior:
+            self.log_lambda.data          = (self.alpha_w / self.beta_w).log()
+            self.log_lambda.requires_grad = False # w ~ N(0, 1/(alpha_w/beta_w).sqrt())
     
     def init_nn(self):
-        self.log_lambda.data = self.prior_log_lambda.sample()
-        self.log_precs.data  = self.prior_log_precision.sample((self.nout, ))
+        self.log_lambda.data = (self.alpha_w / self.beta_w).log()
+        self.log_precs.data  = (self.alpha_n / self.beta_n).log() * torch.ones(self.nout)
         for layer in self.nn.nn:
             if isinstance(layer, nn.Linear):
                 layer.weight.data = torch.distributions.Normal(0, 1/self.log_lambda.exp().sqrt()).sample(layer.weight.shape)
@@ -103,11 +107,15 @@ class BNN_SGDMC(nn.Module, BNN):
                 {'params': self.nn.nn.parameters(), 'lr': self.lr_weight},
                 {'params': self.log_precs,          'lr': self.lr_noise}, 
                 {'params': self.log_lambda,         'lr': self.lr_lambda}]
-        # self.opt       = aSGHMC(params, num_burn_in_steps = self.steps_burnin)
-        # self.scheduler = optim.lr_scheduler.LambdaLR(self.opt, lambda iter : np.float32(1.))
 
         self.opt       = pSGLD(params)
         self.scheduler = optim.lr_scheduler.LambdaLR(self.opt, lambda iter : np.float32((1 + iter)**-0.33))
+        # XXX: learning rate scheduler, as suggested in Teh, Yee Whye,
+        # Alexandre H. Thiery, and Sebastian J. Vollmer. "Consistency and
+        # fluctuations for stochastic gradient Langevin dynamics." The Journal
+        # of Machine Learning Research 17.1 (2016): 193-225.
+        
+        # XXX: I'm not sure if this scheduler is still optimal for preconditioned SGLD
 
 
         self.loader    = DataLoader(TensorDataset(X, y), batch_size = self.batch_size, shuffle = True)
