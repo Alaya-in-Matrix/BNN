@@ -66,13 +66,10 @@ def uci(dataset, split_id):
     conf['steps']        = 2500
     conf['keep_every']   = 50
 
-    conf['lr_weight'] = 2.6e-3
-    conf['lr_noise']  = 1.9e-2
-    conf['lr_lambda'] = 1.2e-2
-    conf['alpha_w']   = 63
-    conf['beta_w']    = 1.2
-    conf['alpha_n']   = 0.51
-    conf['beta_n']    = 0.40
+    conf['lr_weight'] = 1e-1
+    conf['lr_noise']  = 2e-2
+    conf['alpha_n']   = 0.5
+    conf['beta_n']    = 0.4
 
 
     for k in conf:
@@ -99,7 +96,6 @@ def uci(dataset, split_id):
     smse = rmse**2 / torch.mean((test_y - train_y.mean())**2)
     print('RMSE = %g, SMSE = %g, NLL = %6.3f' % (rmse, smse, nll), flush = True)
     print('Model  precision: %g' % (model.log_precs.exp()))
-    print('Weight precision: %g' % (model.log_lambda.exp()))
     return rmse, nll
 
 ds = [

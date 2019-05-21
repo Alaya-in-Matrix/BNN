@@ -29,16 +29,14 @@ class BNN_SGDMC(nn.Module, BNN):
         self.keep_every   = conf.get('keep_every',   50)
         self.batch_size   = conf.get('batch_size',   32)
         self.warm_start   = conf.get('warm_start',   False)
-        self.fix_wprior   = conf.get('fix_wprior', True)
 
         self.lr_weight   = conf.get('lr_weight', 1e-3)
         self.lr_noise    = conf.get('lr_noise',  1e-3)
-        self.lr_lambda   = conf.get('lr_lambda', 1e-3)
-        self.alpha_w     = torch.as_tensor(1.* conf.get('alpha_w', 6.))
-        self.beta_w      = torch.as_tensor(1.* conf.get('beta_w',  6.))
         self.alpha_n     = torch.as_tensor(1.* conf.get('alpha_n', 6.))
         self.beta_n      = torch.as_tensor(1.* conf.get('beta_n',  6.))
-        self.noise_level = conf.get('noise_level', None)
+
+        # user can specify a suggested noise value, this will override alpha_n and beta_n
+        self.noise_level = conf.get('noise_level', None) 
         if self.noise_level is not None:
             prec         = 1 / self.noise_level**2
             prec_var     = (prec * 0.25)**2
@@ -46,34 +44,26 @@ class BNN_SGDMC(nn.Module, BNN):
             self.alpha_n = torch.as_tensor(prec * self.beta_n)
             print("Reset alpha_n = %g, beta_n = %g" % (self.alpha_n, self.beta_n))
 
-        self.prior_log_lambda    = TransformedDistribution(Gamma(self.alpha_w, self.beta_w), ExpTransform().inv) # log of gamma distribution
         self.prior_log_precision = TransformedDistribution(Gamma(self.alpha_n, self.beta_n), ExpTransform().inv)
 
-        self.log_lambda = nn.Parameter(torch.tensor(0.))
-        self.log_precs  = nn.Parameter(torch.zeros(self.nout))
-        self.nn         = NN(dim, self.act, self.num_hiddens, self.nout)
+        self.log_precs = nn.Parameter(torch.zeros(self.nout))
+        self.nn        = NN(dim, self.act, self.num_hiddens, self.nout)
+        self.gain      = 5./3 # Assume tanh activation
         
         self.init_nn()
-        if self.fix_wprior:
-            self.log_lambda.data          = (self.alpha_w / self.beta_w).log()
-            self.log_lambda.requires_grad = False # w ~ N(0, 1/(alpha_w/beta_w).sqrt())
     
     def init_nn(self):
-        self.log_lambda.data = (self.alpha_w / self.beta_w).log()
         self.log_precs.data  = (self.alpha_n / self.beta_n).log() * torch.ones(self.nout)
-        for layer in self.nn.nn:
-            if isinstance(layer, nn.Linear):
-                layer.weight.data = torch.distributions.Normal(0, 1/self.log_lambda.exp().sqrt()).sample(layer.weight.shape)
-                layer.bias.data   = torch.zeros(layer.bias.shape)
+        for l in self.nn.nn:
+            if type(l) == nn.Linear:
+                nn.init.xavier_uniform_(l.weight, gain = self.gain)
 
     def log_prior(self):
-        log_p  = self.prior_log_lambda.log_prob(self.log_lambda).sum()
-        log_p += self.prior_log_precision.log_prob(self.log_precs).sum()
-
-        lambd = self.log_lambda.exp()
+        log_p = self.prior_log_precision.log_prob(self.log_precs).sum()
         for n, p in self.nn.nn.named_parameters():
             if "weight" in n:
-                log_p += -0.5 * lambd * torch.sum(p**2) + 0.5 * p.numel() * (self.log_lambda - np.log(2 * np.pi))
+                std    = self.gain * np.sqrt(2. / (p.shape[0] + p.shape[1]))
+                log_p += torch.distributions.Normal(0, std).log_prob(p).sum()
         return log_p
 
     def log_lik(self, X, y):
@@ -105,8 +95,7 @@ class BNN_SGDMC(nn.Module, BNN):
         num_train   = X.shape[0]
         params      = [
                 {'params': self.nn.nn.parameters(), 'lr': self.lr_weight},
-                {'params': self.log_precs,          'lr': self.lr_noise}, 
-                {'params': self.log_lambda,         'lr': self.lr_lambda}]
+                {'params': self.log_precs,          'lr': self.lr_noise}] 
 
         self.opt       = pSGLD(params)
         self.scheduler = optim.lr_scheduler.LambdaLR(self.opt, lambda iter : np.float32((1 + iter)**-0.33))
@@ -131,8 +120,7 @@ class BNN_SGDMC(nn.Module, BNN):
             loss      = self.sgld_steps(self.keep_every, num_train)
             step_cnt += self.keep_every
             prec      = self.log_precs.exp().mean()
-            wstd      = 1 / self.log_lambda.exp().sqrt()
-            print('Step %4d, loss = %8.2f, precision = %g, weight_std = %g' % (step_cnt, loss, prec, wstd),flush = True)
+            print('Step %4d, loss = %8.2f, precision = %g' % (step_cnt, loss, prec), flush = True)
             self.nns.append(deepcopy(self.nn))
         print('Number of samples: %d' % len(self.nns))
 
