@@ -30,10 +30,10 @@ class BNN_SGDMC(nn.Module, BNN):
         self.batch_size   = conf.get('batch_size',   32)
         self.warm_start   = conf.get('warm_start',   False)
 
-        self.lr_weight   = conf.get('lr_weight', 1e-3)
-        self.lr_noise    = conf.get('lr_noise',  1e-3)
-        self.alpha_n     = torch.as_tensor(1.* conf.get('alpha_n', 6.))
-        self.beta_n      = torch.as_tensor(1.* conf.get('beta_n',  6.))
+        self.lr_weight   = conf.get('lr_weight', 2e-2)
+        self.lr_noise    = conf.get('lr_noise',  1e-1)
+        self.alpha_n     = torch.as_tensor(1.* conf.get('alpha_n', 1e-2))
+        self.beta_n      = torch.as_tensor(1.* conf.get('beta_n',  1e-1))
 
         # user can specify a suggested noise value, this will override alpha_n and beta_n
         self.noise_level = conf.get('noise_level', None) 
