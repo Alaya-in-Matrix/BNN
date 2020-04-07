@@ -1,4 +1,4 @@
-from   torch.distributions import constraints
+from   torch.distributions import constraints, kl_divergence, Normal
 from   torch.nn.parameter  import Parameter
 from   torch.utils.data    import TensorDataset, DataLoader
 from   util                import NN, stable_noise_var, stable_nn_lik, stable_log_lik
@@ -7,6 +7,7 @@ import numpy               as np
 import torch
 import torch.nn            as nn
 import torch.nn.functional as F
+import torch.distributions as dist
 import sys, os
 from torch import autograd
 
@@ -15,20 +16,30 @@ class GaussianLinear(nn.Module):
         super(GaussianLinear, self).__init__()
         self.in_features  = in_features
         self.out_features = out_features
-        self.mu           = Parameter(torch.randn(out_features, 1 + in_features))
-        self.rho          = Parameter(torch.randn(out_features, 1 + in_features))
+        self.mu           = Parameter(torch.zeros(out_features, 1 + in_features))
+        self.rho          = Parameter(torch.zeros(out_features, 1 + in_features))
+        nn.init.xavier_uniform_(self.mu[:, :-1])
+        nn.init.constant_(self.rho, val = -5.)
 
     def rsample(self):
         eps           = torch.randn(self.mu.shape)
         scale         = stable_noise_var(self.rho).sqrt()
         self.wb       = self.mu + scale * eps
-        self.log_prob = torch.sum(-0.5 * torch.pow((self.wb - self.mu) / scale, 2) - 0.5 * torch.log(2 * np.pi * scale**2))
 
     def forward(self, input):
-        self.rsample()
-        w = self.wb[:, :-1]
-        b = self.wb[:, -1]
-        return F.linear(input, weight=w, bias = b)
+        w_mu    = self.mu[:, :-1]
+        b_mu    = self.mu[:, -1]
+        w_s2    = stable_noise_var(self.rho[:, :-1])
+        b_s2    = stable_noise_var(self.rho[:, -1])
+        out_mu  = F.linear(input,    weight = w_mu, bias = b_mu)
+        out_std = F.linear(input**2, weight = w_s2, bias = b_s2).sqrt()
+        eps     = torch.randn(out_mu.shape)
+        return out_mu + eps * out_std
+
+        # self.rsample()
+        # w = self.wb[:, :-1]
+        # b = self.wb[:, -1]
+        # return F.linear(input, weight=w, bias = b)
 
     def sample_linear(self):
         self.rsample()
@@ -82,53 +93,48 @@ class BNN_BBB(BNN):
         self.print_every = conf.get('print_every',  100)
 
         self.lr          = conf.get('lr',           1e-2)
-        self.weight_std  = conf.get('weight_std',   1.)
-        self.noise_level = conf.get('noise_level',  None)
+        self.weight_std  = conf.get('weight_std',   0.1)
+        self.kl_factor   = conf.get('kl_factor',    1e-3)
 
-        self.w_prior = torch.distributions.Normal(torch.zeros(1), self.weight_std*torch.ones(1))
         self.nn      = BayesianNN(dim, self.act, self.num_hiddens)
 
     def loss(self, X, y):
         num_x       = X.shape[0]
         X           = X.reshape(num_x, self.dim)
-        y           = y.reshape(num_x)
-        pred        = self.nn(X).squeeze()
-        log_lik     = stable_log_lik(pred, self.logvar, y).sum()
-        log_qw      = torch.tensor(0.)
-        log_pw      = torch.tensor(0.)
+        y           = y.reshape(num_x, 1)
+        pred        = self.nn(X)
+        mse         = nn.MSELoss(reduction = 'mean')(pred, y)
+        kld         = 0.
         for layer in self.nn.nn:
             if isinstance(layer, GaussianLinear):
-                log_qw += layer.log_prob
-                log_pw += self.w_prior.log_prob(layer.wb).sum()
-        kl_term = log_qw - log_pw
-        return log_lik, kl_term
+                kld += kl_divergence(Normal(layer.mu, stable_noise_var(layer.rho).sqrt()), Normal(0., self.weight_std)).sum()
+        return mse, kld
 
     def train(self, X, y):
-        if self.noise_level is None:
-            print("No noise level provided, use noise_level = 0.05 * y.std()")
-            self.noise_level = 0.05 * y.std()
-        self.logvar = torch.log(torch.tensor(self.noise_level**2).exp() - 1)
         num_x       = X.shape[0]
         X           = X.reshape(num_x, self.dim)
         y           = y.reshape(num_x)
         dataset     = TensorDataset(X, y)
         loader      = DataLoader(dataset, batch_size = self.batch_size, shuffle = True)
 
+        self.nn.train()
         opt = torch.optim.Adam(self.nn.parameters(), self.lr)
         for epoch in range(self.num_epochs):
             epoch_kl  = 0.
-            epoch_lik = 0.
+            epoch_mse = 0.
             for bx, by in loader:
                 opt.zero_grad()
-                log_lik, kl_term  = self.loss(bx, by)
-                kl_term          *= bx.shape[0] / num_x
-                loss              = kl_term - log_lik
+                mse, kl_term  = self.loss(bx, by)
+                kl_loss       = self.kl_factor * kl_term
+                loss          = mse + kl_loss
                 loss.backward()
                 opt.step()
-                epoch_kl  += kl_term
-                epoch_lik += log_lik
+                epoch_mse += mse * bx.shape[0]
+                epoch_kl   = kl_loss
+            epoch_mse /= num_x
             if ((epoch + 1) % self.print_every == 0):
-                print("[Epoch %5d, loss = %8.2f (KL = %8.2f, -log_lik = %8.2f), noise_var = %g]" % (epoch + 1, epoch_kl - epoch_lik, epoch_kl, -1 * epoch_lik, stable_noise_var(self.logvar)))
+                print("[Epoch %5d, loss = %8.2f (KL = %8.2f, mse = %8.2f), kl_factor = %g]" % (epoch + 1, epoch_mse + epoch_kl, epoch_kl, epoch_mse, self.kl_factor))
+        self.nn.eval()               
 
     def sample(self, num_samples = 1):
         nns = [self.nn.sample() for _ in range(num_samples)]
